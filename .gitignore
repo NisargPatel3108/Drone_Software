@@ -1,0 +1,12 @@
+# Build Folders
+bin/
+obj/
+dist/
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+
+# Local logs
+*.log
