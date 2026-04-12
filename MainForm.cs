@@ -27,7 +27,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Pro v1.0.2 - Prince Tagadiya";
+            this.Text = "Agri-Drone Pro v1.0.3 - Prince Tagadiya";
             this.Width = 400;
             this.Height = 550;
             this.BackColor = Color.White;
@@ -189,31 +189,22 @@ namespace MinimalGCS
 
             private async Task StartWorkflow()
             {
-                if (_gpsFix < 3) 
-                { 
-                    if (MessageBox.Show("WARNING: GPS NOT READY (3D Fix Missing). Force flight anyway?", "SAFETY WARNING", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No) return; 
-                }
-                
                 _state = WorkState.STARTING; UpdateUIState();
                 
                 if (!_isArmed)
                 {
-                    _main.Invoke((Action)(() => _lblMsg.Text = "Calibrating Home..."));
-                    SendCmd(179, 1); await Task.Delay(800);
+                    _main.Invoke((Action)(() => _lblMsg.Text = "Initiating Loiter & Arm..."));
+                    SetMode(5); await Task.Delay(1000); // LOITER
                     
-                    SetMode(4); await Task.Delay(500); // GUIDED
-                    _main.Invoke((Action)(() => _lblMsg.Text = "Arming motors..."));
+                    _main.Invoke((Action)(() => _lblMsg.Text = "Forcing Motor ARM..."));
                     SendCmd(400, 1, 21196); // FORCE ARM
                     
-                    for(int i=0; i<15; i++) { if (_isArmed) break; await Task.Delay(500); }
-                    if (!_isArmed) { _state = WorkState.IDLE; UpdateUIState(); MessageBox.Show("Arming failed."); return; }
-
-                    _main.Invoke((Action)(() => _lblMsg.Text = "Takeoff to 5m..."));
-                    SendCmd(22, 0, 0, 0, 0, 0, 0, 5); await Task.Delay(4000);
+                    for(int i=0; i<20; i++) { if (_isArmed) break; await Task.Delay(500); }
+                    if (!_isArmed) { _state = WorkState.IDLE; UpdateUIState(); MessageBox.Show("Arming timeout. Ensure drone is ready."); return; }
                 }
 
-                _main.Invoke((Action)(() => _lblMsg.Text = "Starting Auto Mission..."));
-                SetMode(3); // Start Mission (AUTO)
+                _main.Invoke((Action)(() => _lblMsg.Text = "Initiating AUTO Mission..."));
+                SetMode(3); // AUTO
                 _state = WorkState.WORKING; UpdateUIState();
             }
 
