@@ -3,6 +3,7 @@ using System.IO.Ports;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using MinimalGCS.Mavlink;
@@ -16,7 +17,7 @@ namespace MinimalGCS.Connection
         public byte CompId { get; set; }
         public DateTime LastHeartbeat { get; set; }
 
-        public override string ToString() => $"{Interface.Name} (SysID: {SysId})";
+        public override string ToString() => $"Drone {SysId} ({Interface.Name})";
     }
 
     public class AutoConnector
@@ -29,9 +30,13 @@ namespace MinimalGCS.Connection
         public event Action<string>? OnDeviceDisconnected;
 
         private CancellationTokenSource _cts = new CancellationTokenSource();
+        private bool _isRunning = false;
 
         public void Start()
         {
+            if (_isRunning) return;
+            _isRunning = true;
+            _cts = new CancellationTokenSource();
             StartBackend();
             Task.Run(() => ScanningLoop(_cts.Token));
         }
@@ -39,6 +44,7 @@ namespace MinimalGCS.Connection
         public void Stop()
         {
             _cts.Cancel();
+            _isRunning = false;
             lock (_lock)
             {
                 foreach (var device in ConnectedDevices.Values) device.Interface.Close();
@@ -81,11 +87,23 @@ namespace MinimalGCS.Connection
                     }
                 }
 
-                CheckUdp(14550); CheckUdp(14551); CheckUdp(14552); CheckUdp(14553);
-                CheckTcp("127.0.0.1", 5760); CheckTcp("127.0.0.1", 5762); CheckTcp("127.0.0.1", 5763);
-                CheckSerialPorts();
+                // INSTANT PARALLEL PROBING
+                var tasks = new List<Task>();
+                
+                // Probe standard UDP ports
+                for (int p = 14550; p <= 14560; p++) { int port = p; tasks.Add(Task.Run(() => CheckUdp(port))); }
+                
+                // Probe standard TCP ports with short timeout
+                for (int p = 5760; p <= 5780; p++) 
+                { 
+                    int port = p; 
+                    tasks.Add(Task.Run(async () => await CheckTcpAsync("127.0.0.1", port))); 
+                }
+                
+                tasks.Add(Task.Run(() => CheckSerialPorts()));
 
-                await Task.Delay(3000, token);
+                await Task.WhenAll(tasks);
+                await Task.Delay(2000, token); // Wait before next burst
             }
         }
 
@@ -94,21 +112,32 @@ namespace MinimalGCS.Connection
             lock (_lock)
             {
                 string name = $"UDP:{port}";
-                if (ConnectedDevices.ContainsKey(name)) return;
-                if (_probingInterfaces.Any(i => i is UdpInterface u && u.Name.Contains(port.ToString()))) return;
+                if (ConnectedDevices.ContainsKey(name) || _probingInterfaces.Any(i => i.Name == name)) return;
                 try { SetupProbe(new UdpInterface(port)); } catch { }
             }
         }
 
-        private void CheckTcp(string host, int port)
+        private async Task CheckTcpAsync(string host, int port)
         {
-            lock (_lock)
+            string name = $"TCP:{host}:{port}";
+            lock (_lock) { if (ConnectedDevices.ContainsKey(name) || _probingInterfaces.Any(i => i.Name == name)) return; }
+
+            try
             {
-                string name = $"TCP:{host}:{port}";
-                if (ConnectedDevices.ContainsKey(name)) return;
-                if (_probingInterfaces.Any(i => i is TcpInterface t && t.Name.Contains(port.ToString()))) return;
-                try { SetupProbe(new TcpInterface(host, port)); } catch { }
+                using (var client = new TcpClient())
+                {
+                    var connectTask = client.ConnectAsync(host, port);
+                    if (await Task.WhenAny(connectTask, Task.Delay(200)) == connectTask) // 200ms timeout for localhost
+                    {
+                        if (client.Connected)
+                        {
+                            var iface = new TcpInterface(host, port); // New instance to keep open
+                            lock (_lock) { SetupProbe(iface); }
+                        }
+                    }
+                }
             }
+            catch { }
         }
 
         private void CheckSerialPorts()
@@ -140,6 +169,9 @@ namespace MinimalGCS.Connection
 
         private void HandleDiscovery(MavLinkInterface iface, MavLinkPacket pkt)
         {
+            // Filter out GCS/MAVProxy heartbeats (SysId 255 or 0)
+            if (pkt.SystemId == 255 || pkt.SystemId == 0) return;
+
             if (ConnectedDevices.TryGetValue(iface.Name, out var device))
             {
                 device.LastHeartbeat = DateTime.Now;

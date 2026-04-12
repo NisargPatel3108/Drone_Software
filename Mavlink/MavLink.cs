@@ -49,12 +49,13 @@ namespace MinimalGCS.Mavlink
         // CRC extras for common messages (ArduPilot/PX4 standard)
         public static readonly Dictionary<uint, byte> CrcExtras = new Dictionary<uint, byte>
         {
-            { 0, 50 },   // HEARTBEAT
-            { 76, 152 }, // COMMAND_LONG
-            { 11, 89 },  // SET_MODE
-            { 1, 124 },  // SYS_STATUS
-            { 30, 28 },  // ATTITUDE
-            { 33, 58 }   // GLOBAL_POSITION_INT
+            { 0, 50 },    // HEARTBEAT
+            { 76, 152 },  // COMMAND_LONG
+            { 11, 89 },   // SET_MODE
+            { 1, 124 },   // SYS_STATUS
+            { 24, 24 },   // GPS_RAW_INT
+            { 33, 104 },  // GLOBAL_POSITION_INT (ArduPilot Standard)
+            { 253, 83 }   // STATUSTEXT
         };
     }
 }
