@@ -58,6 +58,9 @@ namespace MinimalGCS.Connection
         {
             try
             {
+                // Cleanup old proxy instances to free ports
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = "taskkill", Arguments = "/IM mavproxy.exe /F", CreateNoWindow = true, UseShellExecute = false }).WaitForExit(); } catch { }
+
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "mavproxy.exe",
@@ -77,7 +80,7 @@ namespace MinimalGCS.Connection
                 var now = DateTime.Now;
                 foreach (var kvp in ConnectedDevices.ToList())
                 {
-                    if ((now - kvp.Value.LastHeartbeat).TotalSeconds > 2)
+                    if ((now - kvp.Value.LastHeartbeat).TotalSeconds > 5)
                     {
                         if (ConnectedDevices.TryRemove(kvp.Key, out var device))
                         {
@@ -103,7 +106,7 @@ namespace MinimalGCS.Connection
                 tasks.Add(Task.Run(() => CheckSerialPorts()));
 
                 await Task.WhenAll(tasks);
-                await Task.Delay(2000, token); // Wait before next burst
+                await Task.Delay(3000, token); // Slower scanning to save CPU
             }
         }
 
@@ -127,7 +130,7 @@ namespace MinimalGCS.Connection
                 using (var client = new TcpClient())
                 {
                     var connectTask = client.ConnectAsync(host, port);
-                    if (await Task.WhenAny(connectTask, Task.Delay(200)) == connectTask) // 200ms timeout for localhost
+                    if (await Task.WhenAny(connectTask, Task.Delay(500)) == connectTask) // 500ms for more reliability
                     {
                         if (client.Connected)
                         {

@@ -27,7 +27,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Pro v1.0.5 - Prince Tagadiya";
+            this.Text = "Agri-Drone Pro v1.0.6 - Prince Tagadiya";
             this.Width = 420;
             this.Height = 650;
             this.BackColor = Color.White;
@@ -177,8 +177,8 @@ namespace MinimalGCS
                 }
                 else if (pkt.MessageId == 253) 
                 
-                // Watchdog: If no heartbeat > 2s, show disconnected in UI
-                if ((DateTime.Now - _lastHeartbeat).TotalSeconds > 2)
+                // Watchdog: If no heartbeat > 5s, show disconnected in UI
+                if ((DateTime.Now - _lastHeartbeat).TotalSeconds > 5)
                 {
                     _main.Invoke((Action)(() => { _lblWorkStatus.Text = "DISCONNECTED"; _lblWorkStatus.ForeColor = Color.Red; }));
                 }
@@ -192,7 +192,8 @@ namespace MinimalGCS
                     _btnResume.Visible = (_state == WorkState.PAUSED);
                     _btnRTL.Visible = _btnLand.Visible = (_state != WorkState.IDLE);
                     
-                    switch(_state) {
+                    if ((DateTime.Now - _lastHeartbeat).TotalSeconds > 5) { _lblWorkStatus.Text = "DISCONNECTED"; _lblWorkStatus.ForeColor = Color.Red; }
+                    else switch(_state) {
                         case WorkState.IDLE: _lblWorkStatus.Text = "READY"; _lblWorkStatus.ForeColor = Color.Blue; break;
                         case WorkState.STARTING: _lblWorkStatus.Text = "STARTING..."; break;
                         case WorkState.WORKING: _lblWorkStatus.Text = "MISSION RUNNING"; _lblWorkStatus.ForeColor = Color.Green; break;
