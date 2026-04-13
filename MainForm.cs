@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.1.0-Refactored";
+            this.Text = "Agri-Drone Enterprise v1.1.1 - Prince Tagadiya";
             this.Width = 420; this.Height = 700;
             this.BackColor = Color.White;
 
