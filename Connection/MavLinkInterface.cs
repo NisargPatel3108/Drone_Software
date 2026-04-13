@@ -10,7 +10,13 @@ namespace MinimalGCS.Connection
     public abstract class MavLinkInterface : IDisposable
     {
         public abstract void Send(byte[] data);
-        public abstract void StartReading(Action<byte[]> onDataReceived);
+        public event Action<byte[]>? OnDataReceived;
+        
+        protected bool _running;
+        
+        protected void NotifyData(byte[] data) => OnDataReceived?.Invoke(data);
+
+        public abstract void StartReading();
         public abstract void Close();
         public abstract bool IsOpen { get; }
         public abstract string Name { get; }
@@ -22,7 +28,6 @@ namespace MinimalGCS.Connection
     {
         private UdpClient? _client;
         private IPEndPoint? _remoteEp;
-        private bool _running;
         private int _port;
 
         public UdpInterface(int port = 14550)
@@ -39,12 +44,13 @@ namespace MinimalGCS.Connection
         {
             if (_client != null && _remoteEp != null)
             {
-                _client.Send(data, data.Length, _remoteEp);
+                try { _client.Send(data, data.Length, _remoteEp); } catch { }
             }
         }
 
-        public override void StartReading(Action<byte[]> onDataReceived)
+        public override void StartReading()
         {
+            if (_running) return;
             _running = true;
             System.Threading.Tasks.Task.Run(() =>
             {
@@ -55,10 +61,11 @@ namespace MinimalGCS.Connection
                         IPEndPoint from = new IPEndPoint(IPAddress.Any, 0);
                         byte[] data = _client.Receive(ref from);
                         _remoteEp = from;
-                        onDataReceived(data);
+                        NotifyData(data);
                     }
                     catch (SocketException) { /* Timeout or closed */ }
                     catch (ObjectDisposedException) { break; }
+                    catch { }
                 }
             });
         }
@@ -76,7 +83,6 @@ namespace MinimalGCS.Connection
     public class SerialInterface : MavLinkInterface
     {
         private SerialPort? _port;
-        private bool _running;
 
         public SerialInterface(string portName, int baudRate)
         {
@@ -92,16 +98,17 @@ namespace MinimalGCS.Connection
         {
             if (_port != null && _port.IsOpen)
             {
-                _port.Write(data, 0, data.Length);
+                try { _port.Write(data, 0, data.Length); } catch { }
             }
         }
 
-        public override void StartReading(Action<byte[]> onDataReceived)
+        public override void StartReading()
         {
+            if (_running) return;
             _running = true;
             System.Threading.Tasks.Task.Run(() =>
             {
-                byte[] buffer = new byte[4096];
+                byte[] buffer = new byte[8192];
                 while (_running && _port != null && _port.IsOpen)
                 {
                     try
@@ -111,7 +118,7 @@ namespace MinimalGCS.Connection
                         {
                             byte[] actual = new byte[count];
                             Buffer.BlockCopy(buffer, 0, actual, 0, count);
-                            onDataReceived(actual);
+                            NotifyData(actual);
                         }
                     }
                     catch (TimeoutException) { }
@@ -125,7 +132,7 @@ namespace MinimalGCS.Connection
             _running = false;
             if (_port != null && _port.IsOpen)
             {
-                _port.Close();
+                try { _port.Close(); } catch { }
             }
             _port = null;
         }
@@ -137,7 +144,6 @@ namespace MinimalGCS.Connection
     {
         private TcpClient? _client;
         private NetworkStream? _stream;
-        private bool _running;
         private string _host;
         private int _port;
 
@@ -162,12 +168,13 @@ namespace MinimalGCS.Connection
             catch { }
         }
 
-        public override void StartReading(Action<byte[]> onDataReceived)
+        public override void StartReading()
         {
+            if (_running) return;
             _running = true;
             System.Threading.Tasks.Task.Run(() =>
             {
-                byte[] buffer = new byte[4096];
+                byte[] buffer = new byte[8192];
                 while (_running && _stream != null)
                 {
                     try
@@ -177,7 +184,7 @@ namespace MinimalGCS.Connection
                         {
                             byte[] actual = new byte[count];
                             Buffer.BlockCopy(buffer, 0, actual, 0, count);
-                            onDataReceived(actual);
+                            NotifyData(actual);
                         }
                         else { break; }
                     }

@@ -94,7 +94,7 @@ namespace MinimalGCS.Connection
                 var tasks = new List<Task>();
                 
                 // Probe standard UDP ports
-                for (int p = 14550; p <= 14560; p++) { int port = p; tasks.Add(Task.Run(() => CheckUdp(port))); }
+                for (int p = 14540; p <= 14570; p++) { int port = p; tasks.Add(Task.Run(() => CheckUdp(port))); }
                 
                 // Probe standard TCP ports with short timeout
                 for (int p = 5760; p <= 5780; p++) 
@@ -106,7 +106,7 @@ namespace MinimalGCS.Connection
                 tasks.Add(Task.Run(() => CheckSerialPorts()));
 
                 await Task.WhenAll(tasks);
-                await Task.Delay(3000, token); // Slower scanning to save CPU
+                await Task.Delay(1000, token); // Faster scanning (1s) for better user experience
             }
         }
 
@@ -130,7 +130,7 @@ namespace MinimalGCS.Connection
                 using (var client = new TcpClient())
                 {
                     var connectTask = client.ConnectAsync(host, port);
-                    if (await Task.WhenAny(connectTask, Task.Delay(500)) == connectTask) // 500ms for more reliability
+                    if (await Task.WhenAny(connectTask, Task.Delay(1000)) == connectTask) // 1000ms for more reliability
                     {
                         if (client.Connected)
                         {
@@ -150,7 +150,8 @@ namespace MinimalGCS.Connection
             {
                 foreach (var port in ports)
                 {
-                    foreach (var baud in new[] { 115200, 57600 })
+                    // Comprehensive baud rate check (921600 is modern default, 57600 is legacy SiK)
+                    foreach (var baud in new[] { 921600, 115200, 57600, 38400, 9600 })
                     {
                         string name = $"{port}@{baud}";
                         if (ConnectedDevices.ContainsKey(name) || _probingInterfaces.Any(i => i.Name == name)) continue;
@@ -167,13 +168,18 @@ namespace MinimalGCS.Connection
             parser.PacketReceived += (pkt) => {
                 if (pkt.MessageId == MavLinkMessages.HEARTBEAT_ID) HandleDiscovery(iface, pkt);
             };
-            iface.StartReading(data => parser.Parse(data));
+            iface.OnDataReceived += data => parser.Parse(data);
+            iface.StartReading();
         }
 
         private void HandleDiscovery(MavLinkInterface iface, MavLinkPacket pkt)
         {
-            // Filter out GCS/MAVProxy heartbeats (SysId 255 or 0)
-            if (pkt.SystemId == 255 || pkt.SystemId == 0) return;
+            // PRO-LEVEL FILTERING:
+            // Heartbeat Type 6 = GCS. We ONLY want drones (Type 1-5, 10+, etc.)
+            if (pkt.Payload.Length > 4 && pkt.Payload[4] == 6) return;
+            
+            // Skip packets from standard GCS IDs (255) to avoid connecting to ourselves or MAVProxy
+            if (pkt.SystemId == 255) return;
 
             if (ConnectedDevices.TryGetValue(iface.Name, out var device))
             {

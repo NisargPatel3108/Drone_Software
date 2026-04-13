@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.1.1 - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.1.5 - Prince Tagadiya";
             this.Width = 420; this.Height = 700;
             this.BackColor = Color.White;
 
@@ -71,7 +71,8 @@ namespace MinimalGCS
                     // SINGLE READER PER DEVICE -> Dispatches to Central State
                     var parser = new MavLinkParser();
                     parser.PacketReceived += (pkt) => DispatchPacket(pkt);
-                    device.Interface.StartReading(data => parser.Parse(data));
+                    device.Interface.OnDataReceived += (data) => parser.Parse(data);
+                    device.Interface.StartReading();
                 }
             }));
         }
@@ -174,38 +175,63 @@ namespace MinimalGCS
                 {
                     _lblStatus.Text = state.Mode == 3 ? "MISSION ACTIVE" : "READY";
                     _lblStatus.ForeColor = state.Mode == 3 ? Color.Green : Color.Blue;
+
+                    // DYNAMIC BUTTON: START (On Ground) vs RESUME (In Air)
+                    if (!state.IsArmed)
+                    {
+                        _btnStart.Text = "START MISSION";
+                        _btnStart.BackColor = Color.FromArgb(40, 167, 69);
+                        _btnStart.Visible = true;
+                    }
+                    else if (state.Mode != 3) // RTL, LAND, LOITER
+                    {
+                        _btnStart.Text = "RESUME MISSION";
+                        _btnStart.BackColor = Color.FromArgb(0, 123, 255);
+                        _btnStart.Visible = true;
+                    }
+                    else
+                    {
+                        _btnStart.Visible = false;
+                    }
                 }
 
-                _btnStart.Visible = (state.Mode != 3 && _pState == PanelState.IDLE);
-                _btnPause.Visible = (state.Mode == 3);
-                _btnResume.Visible = (state.Mode == 5);
+                _btnPause.Visible = (state.IsArmed && state.Mode == 3);
+                _btnResume.Visible = false; // Internal resume integrated into main button
+
+                if (!state.IsArmed && _pState == PanelState.IDLE) 
+                { 
+                    _lblStatus.Text = "READY"; _lblStatus.ForeColor = Color.Blue; 
+                }
             }
 
             private async Task CommandStartMission()
             {
                 _pState = PanelState.BUSY;
-                _lblStatus.Text = "STARTING..."; _lblStatus.ForeColor = Color.Orange;
-
-                // Step 1: Set GUIDED
-                if (!await ExecuteStep("Setting Mode: GUIDED", () => SendSetMode(4), () => _state.Mode == 4)) return;
                 
-                // Step 2: ARM
                 if (!_state.IsArmed)
                 {
-                    if (!await ExecuteStep("Arming Motors...", () => SendCmd(400, 1, 21196), () => _state.IsArmed)) return;
+                    _lblStatus.Text = "STARTING...";
+                    _state.AddLog("ACTION -> PREP GUIDED");
+                    SendSetMode(4); 
+                    await Task.Delay(50);
+                    _state.AddLog("ACTION -> ARMING");
+                    SendCmd(400, 1, 21196); 
+                    await Task.Delay(100);
+                }
+                else
+                {
+                    _lblStatus.Text = "RESUMING...";
+                    _state.AddLog("ACTION -> SYNC AUTO");
+                    SendSetMode(3); 
+                    await Task.Delay(50);
                 }
 
-                // Step 3: Wait for stabilization
-                _state.AddLog("Stabilizing (2s)...");
-                await Task.Delay(2000);
+                _state.AddLog("ACTION -> MISSION_START");
+                SendCmd(300, 0, 0); 
 
-                // Step 4: Set AUTO
-                if (!await ExecuteStep("Switching to AUTO...", () => SendSetMode(3), () => _state.Mode == 3)) return;
-
-                // Step 5: Start Mission
-                SendCmd(300, 1);
-                _state.AddLog("Mission Executed Successfully");
                 _pState = PanelState.IDLE;
+                _lblStatus.Text = "MISSION ACTIVE";
+                _state.AddLog("COMMAND SENT.");
             }
 
             private async Task<bool> ExecuteStep(string log, Action send, Func<bool> verify)
@@ -215,10 +241,14 @@ namespace MinimalGCS
                 while (retries-- > 0)
                 {
                     send();
-                    for (int i = 0; i < 15; i++) { if (verify()) return true; await Task.Delay(200); }
+                    // High-frequency polling (50ms) for 1 second per retry
+                    for (int i = 0; i < 20; i++) 
+                    { 
+                        if (verify()) return true; 
+                        await Task.Delay(50); 
+                    }
                 }
-                _state.AddLog("Step Failed: Timeout");
-                _pState = PanelState.IDLE;
+                _state.AddLog($"Step Failed: {log}");
                 return false;
             }
 
