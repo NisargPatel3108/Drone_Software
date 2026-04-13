@@ -57,6 +57,7 @@ namespace MinimalGCS.Mavlink
             { 74, 20 },   // VFR_HUD
             { 124, 87 },  // GPS2_RAW
             { 127, 25 },  // GPS_RTK
+            { 42, 28 },   // MISSION_CURRENT
             { 253, 83 },  // STATUSTEXT
             { 76, 152 },  // COMMAND_LONG
             { 11, 89 }    // SET_MODE
