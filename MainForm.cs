@@ -32,16 +32,16 @@ namespace MinimalGCS
 
             // UI UPDATE TIMER (10Hz) - Reads from stable state
             _uiTicker = new System.Windows.Forms.Timer { Interval = 100 };
-            _uiTicker.Tick += (s, e) => UpdateUIFromState();
+            _uiTicker.Tick += Timer_Tick;
             _uiTicker.Start();
         }
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.1.5 - Prince Tagadiya";
-            this.Width = 420; this.Height = 700;
-            this.BackColor = Color.White;
-
+            this.Text = "Agri-Drone Enterprise v1.2.5 - Prince Tagadiya";
+            this.Size = new Size(1200, 800);
+            this.BackColor = Color.FromArgb(245, 245, 245);
+            
             _workArea = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(240, 240, 240), Padding = new Padding(15) };
             this.Controls.Add(_workArea);
             _workArea.BringToFront();
@@ -91,25 +91,19 @@ namespace MinimalGCS
             }
             else if (pkt.MessageId == 24 || pkt.MessageId == 124) // GPS_RAW_INT or GPS2_RAW
             {
-                byte fix = pkt.Payload[8];
-                if (fix > 0) state.GpsFixType = fix;
-            }
-            else if (pkt.MessageId == 24 || pkt.MessageId == 124) // GPS_RAW_INT or GPS2_RAW
-            {
                 if (pkt.Payload.Length > 8) {
                     byte fix = pkt.Payload[8];
                     if (fix > 0) state.GpsFixType = fix;
                 }
             }
-            else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) // GLOBAL_POSITION_INT
+            else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) // GLOBAL_POSITION
             {
-                int relAlt = BitConverter.ToInt32(pkt.Payload, 16);
-                state.Alt = relAlt / 1000.0f;
-                state.AddLog($"ALT RAW: {relAlt}, ALT (m): {state.Alt:F1}");
+                int rawAlt = BitConverter.ToInt32(pkt.Payload, 16);
+                state.Alt = rawAlt / 1000.0f;
             }
-            else if (pkt.MessageId == 74) // VFR_HUD (No longer used for Alt per strict request)
+            else if (pkt.MessageId == 74 && pkt.Payload.Length >= 16) // VFR_HUD (Backup Alt)
             {
-                // Speed data only
+                state.Alt = BitConverter.ToSingle(pkt.Payload, 12);
             }
             else if (pkt.MessageId == 42 && pkt.Payload.Length >= 2) // MISSION_CURRENT
             {
@@ -122,22 +116,27 @@ namespace MinimalGCS
             }
         }
 
-        private void UpdateUIFromState()
+        private void Timer_Tick(object sender, EventArgs e)
         {
-            foreach (var kvp in _panels)
+            foreach (var panel in _panels.Values)
             {
-                if (_drones.TryGetValue(kvp.Key, out var state)) kvp.Value.SyncWithState(state);
+                if (_drones.TryGetValue((byte)panel.BaseSysId, out var state))
+                {
+                    panel.SyncWithState(state);
+                }
             }
-        }
+        } 
 
         public string GetModeName(uint mode) => mode switch { 0 => "STABILIZE", 3 => "AUTO", 4 => "GUIDED", 5 => "LOITER", 6 => "RTL", 9 => "LAND", _ => $"MODE({mode})" };
 
         // --- MANAGES ONE DRONE'S UI AND COMMANDS ---
         public class AgriWorkPanel : Panel
         {
-            private DiscoveredDevice _device;
-            private DroneState _state;
             private MainForm _main;
+            private DroneState _state;
+            private DiscoveredDevice _device;
+            public int BaseSysId => _device.SysId;
+            
             private Label _lblStatus, _lblTelemetry, _lblMsg;
             private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency;
             
@@ -199,8 +198,16 @@ namespace MinimalGCS
                 this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, pnlSwipe });
             }
 
+            private DateTime _lastTelemetryRequest = DateTime.MinValue;
             public void SyncWithState(DroneState state)
             {
+                // Periodically request telemetry streams (2Hz) to ensure ArduPilot is sending data
+                if (state.IsConnected && (DateTime.Now - _lastTelemetryRequest).TotalSeconds > 2)
+                {
+                    _lastTelemetryRequest = DateTime.Now;
+                    SendCmd(66, 0, 2, 1); // REQUEST_DATA_STREAM: MAV_DATA_STREAM_ALL at 2Hz
+                }
+
                 _lblMsg.Text = state.LastMessage;
                 string gps = state.GpsFixType switch { 3 => "3D OK", 4 => "DGPS", 5 => "RTK-F", 6 => "RTK-FIX", _ => "SEARCHING" };
                 _lblTelemetry.Text = $"GPS: {gps} | ALT: {state.Alt:F1}m | WP: {state.CurrentWp} | {_main.GetModeName(state.Mode)}";
