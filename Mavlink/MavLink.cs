@@ -50,12 +50,16 @@ namespace MinimalGCS.Mavlink
         public static readonly Dictionary<uint, byte> CrcExtras = new Dictionary<uint, byte>
         {
             { 0, 50 },    // HEARTBEAT
-            { 76, 152 },  // COMMAND_LONG
-            { 11, 89 },   // SET_MODE
             { 1, 124 },   // SYS_STATUS
             { 24, 24 },   // GPS_RAW_INT
-            { 33, 104 },  // GLOBAL_POSITION_INT (ArduPilot Standard)
-            { 253, 83 }   // STATUSTEXT
+            { 33, 104 },  // GLOBAL_POSITION_INT
+            { 30, 28 },   // ATTITUDE
+            { 74, 20 },   // VFR_HUD
+            { 124, 87 },  // GPS2_RAW
+            { 127, 25 },  // GPS_RTK
+            { 253, 83 },  // STATUSTEXT
+            { 76, 152 },  // COMMAND_LONG
+            { 11, 89 }    // SET_MODE
         };
     }
 }

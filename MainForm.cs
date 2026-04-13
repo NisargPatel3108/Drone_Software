@@ -27,7 +27,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Pro v1.0.4 - Prince Tagadiya";
+            this.Text = "Agri-Drone Pro v1.0.5 - Prince Tagadiya";
             this.Width = 420;
             this.Height = 650;
             this.BackColor = Color.White;
@@ -142,13 +142,39 @@ namespace MinimalGCS
                     _currentMode = BitConverter.ToUInt32(pkt.Payload, 0);
                     _isArmed = (pkt.Payload[6] & 128) != 0;
                     _main.Invoke((Action)(() => {
-                        _lblTelemetry.Text = $"GPS: {(_gpsFix >= 3 ? "FIXED" : "SEARCHING...")} | Alt: {_alt:F1}m | {_main.GetModeName(_currentMode)} | {(_isArmed ? "ARMED" : "DISARMED")}";
+                        string fixText = _gpsFix switch {
+                            3 => "3D FIX OK",
+                            4 => "DGPS FIXED",
+                            5 => "RTK FLOAT",
+                            6 => "RTK FIXED",
+                            _ => "SEARCHING..."
+                        };
+                        _lblTelemetry.Text = $"GPS: {fixText} | Alt: {_alt:F1}m | {_main.GetModeName(_currentMode)} | {(_isArmed ? "ARMED" : "DISARMED")}";
                         if (_currentMode != 3 && _state == WorkState.WORKING) { _state = WorkState.IDLE; UpdateUIState(); }
                     }));
                 }
                 else if (pkt.MessageId == 33) { _alt = BitConverter.ToInt32(pkt.Payload, 16) / 1000.0f; }
-                else if (pkt.MessageId == 24) { _gpsFix = pkt.Payload[8]; }
-                else if (pkt.MessageId == 253) { string m = System.Text.Encoding.ASCII.GetString(pkt.Payload, 1, pkt.Payload.Length - 1).TrimEnd('\0'); _main.Invoke((Action)(() => _lblMsg.Text = m)); }
+                else if (pkt.MessageId == 24) 
+                { 
+                    _gpsPacketCount++;
+                    byte f1 = pkt.Payload.Length > 8 ? pkt.Payload[8] : (byte)0;
+                    byte f2 = pkt.Payload.Length > 2 ? pkt.Payload[2] : (byte)0;
+                    _gpsFix = Math.Max(_gpsFix, Math.Max(f1, f2));
+                }
+                else if (pkt.MessageId == 124) // GPS2_RAW
+                {
+                    byte f = pkt.Payload.Length > 8 ? pkt.Payload[8] : (byte)0;
+                    _gpsFix = Math.Max(_gpsFix, f);
+                }
+                else if (pkt.MessageId == 127) // GPS_RTK
+                {
+                    _gpsFix = 6; // If we get RTK specific packets, assume high level
+                }
+                else if (pkt.MessageId == 74) // VFR_HUD
+                {
+                    _alt = BitConverter.ToSingle(pkt.Payload, 8); // alt is float at offset 8 in VFR_HUD
+                }
+                else if (pkt.MessageId == 253) 
                 
                 // Watchdog: If no heartbeat > 2s, show disconnected in UI
                 if ((DateTime.Now - _lastHeartbeat).TotalSeconds > 2)
