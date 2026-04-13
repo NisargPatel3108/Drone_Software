@@ -94,11 +94,22 @@ namespace MinimalGCS
                 byte fix = pkt.Payload[8];
                 if (fix > 0) state.GpsFixType = fix;
             }
-            else if (pkt.MessageId == 33) // GLOBAL_POSITION_INT
+            else if (pkt.MessageId == 24 || pkt.MessageId == 124) // GPS_RAW_INT or GPS2_RAW
+            {
+                if (pkt.Payload.Length > 8) {
+                    byte fix = pkt.Payload[8];
+                    if (fix > 0) state.GpsFixType = fix;
+                }
+            }
+            else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) // GLOBAL_POSITION_INT
             {
                 state.Alt = BitConverter.ToInt32(pkt.Payload, 16) / 1000.0f;
             }
-            else if (pkt.MessageId == 42) // MISSION_CURRENT
+            else if (pkt.MessageId == 74 && pkt.Payload.Length >= 16) // VFR_HUD
+            {
+                state.Alt = BitConverter.ToSingle(pkt.Payload, 12);
+            }
+            else if (pkt.MessageId == 42 && pkt.Payload.Length >= 2) // MISSION_CURRENT
             {
                 state.CurrentWp = BitConverter.ToUInt16(pkt.Payload, 0);
             }
