@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.2.5 - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.2.6 - Prince Tagadiya";
             this.Size = new Size(1200, 800);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
@@ -98,12 +98,9 @@ namespace MinimalGCS
             }
             else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) // GLOBAL_POSITION
             {
-                int rawAlt = BitConverter.ToInt32(pkt.Payload, 16);
+                int rawAlt = BitConverter.ToInt32(pkt.Payload, 12);
                 state.Alt = rawAlt / 1000.0f;
-            }
-            else if (pkt.MessageId == 74 && pkt.Payload.Length >= 16) // VFR_HUD (Backup Alt)
-            {
-                state.Alt = BitConverter.ToSingle(pkt.Payload, 12);
+                state.AddLog($"ALT RAW: {rawAlt}, ALT (m): {state.Alt:F1}");
             }
             else if (pkt.MessageId == 42 && pkt.Payload.Length >= 2) // MISSION_CURRENT
             {
