@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.2.8 - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.2.9 - Prince Tagadiya";
             this.Size = new Size(1200, 800);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
@@ -73,6 +73,9 @@ namespace MinimalGCS
                     parser.PacketReceived += (pkt) => DispatchPacket(pkt);
                     device.Interface.OnDataReceived += (data) => parser.Parse(data);
                     device.Interface.StartReading();
+
+                    // One-time telemetry request on connection
+                    device.Interface.Send(MavLinkCommands.CreateCommandLong(255, 1, device.SysId, device.CompId, 66, 6, 10, 1));
                 }
             }));
         }
@@ -200,16 +203,8 @@ namespace MinimalGCS
                 this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, pnlSwipe });
             }
 
-            private DateTime _lastTelemetryRequest = DateTime.MinValue;
             public void SyncWithState(DroneState state)
             {
-                // Periodically request telemetry streams (2Hz checking rate) to ensure ArduPilot is sending data
-                if (state.IsConnected && (DateTime.Now - _lastTelemetryRequest).TotalSeconds > 2)
-                {
-                    _lastTelemetryRequest = DateTime.Now;
-                    SendCmd(66, 6, 10, 1); // REQUEST_DATA_STREAM: MAV_DATA_STREAM_POSITION at 10Hz
-                }
-
                 _lblMsg.Text = state.LastMessage;
                 string gps = state.GpsFixType switch { 3 => "3D OK", 4 => "DGPS", 5 => "RTK-F", 6 => "RTK-FIX", _ => "SEARCHING" };
                 _lblTelemetry.Text = $"GPS: {gps} | ALT: {state.Alt:F1}m | WP: {state.CurrentWp} | {_main.GetModeName(state.Mode)}";
