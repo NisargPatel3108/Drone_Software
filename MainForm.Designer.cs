@@ -84,10 +84,10 @@ namespace MinimalGCS
             this.Controls.Add(this.btnConnect);
             this.Controls.Add(this.cmbActiveDrone);
             this.Controls.Add(this.groupControl);
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
-            this.MaximizeBox = false;
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.Sizable;
+            this.MaximizeBox = true;
             this.Name = "MainForm";
-            this.Text = "Minimal MAVLink GCS";
+            this.Text = "Agri-Drone Enterprise v1.3.0";
             
             this.groupControl.ResumeLayout(false);
             this.ResumeLayout(false);

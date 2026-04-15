@@ -29,6 +29,24 @@ namespace MinimalGCS.Mavlink
             return BuildPacket(sysId, compId, MavLinkMessages.COMMAND_LONG_ID, payload);
         }
 
+        public static byte[] CreateSetMessageInterval(byte sysId, byte compId, byte targetSys, uint msgId, int intervalUs)
+        {
+            return CreateCommandLong(sysId, compId, targetSys, 1, 511, msgId, intervalUs);
+        }
+
+        public static byte[] CreateRequestDataStream(byte sysId, byte compId, byte targetSys, byte streamId, ushort rate, byte startStop)
+        {
+            byte[] payload = new byte[6];
+            payload[0] = (byte)(rate & 0xFF);
+            payload[1] = (byte)((rate >> 8) & 0xFF);
+            payload[2] = targetSys;
+            payload[3] = 1; // target component
+            payload[4] = streamId;
+            payload[5] = startStop;
+
+            return BuildPacket(sysId, compId, 66, payload);
+        }
+
         public static byte[] CreateSetMode(byte sysId, byte compId, byte targetSys, byte baseMode, uint customMode)
         {
             byte[] payload = new byte[6];
@@ -39,6 +57,7 @@ namespace MinimalGCS.Mavlink
             return BuildPacket(sysId, compId, MavLinkMessages.SET_MODE_ID, payload);
         }
 
+        private static byte _seq = 0;
         private static byte[] BuildPacket(byte sysId, byte compId, uint msgId, byte[] payload)
         {
             // MAVLink v1 for simplicity in command sending
@@ -46,7 +65,7 @@ namespace MinimalGCS.Mavlink
             byte[] packet = new byte[len];
             packet[0] = 0xFE;
             packet[1] = (byte)payload.Length;
-            packet[2] = 0; // Sequence
+            packet[2] = _seq++; // Sequence
             packet[3] = sysId;
             packet[4] = compId;
             packet[5] = (byte)msgId;
