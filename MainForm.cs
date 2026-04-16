@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.3.0 (Stable) - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.3.1 (Stable) - Prince Tagadiya";
             this.Size = new Size(1000, 700);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
@@ -104,6 +104,8 @@ namespace MinimalGCS
             else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) 
             {
                 // GLOBAL_POSITION_INT: 12=Alt_MSL, 16=Alt_AGL (Relative)
+                state.Lat = BitConverter.ToInt32(pkt.Payload, 4) / 10000000.0;
+                state.Lon = BitConverter.ToInt32(pkt.Payload, 8) / 10000000.0;
                 state.Alt = BitConverter.ToInt32(pkt.Payload, 16) / 1000.0f;
             }
             else if (pkt.MessageId == 74 && pkt.Payload.Length >= 12) 
@@ -143,7 +145,7 @@ namespace MinimalGCS
             private DiscoveredDevice _device;
             public int BaseSysId => _device.SysId;
             
-            private Label _lblStatus, _lblTelemetry, _lblMsg;
+            private Label _lblStatus, _lblTelemetry, _lblGPS, _lblMsg;
             private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency;
             
             private enum PanelState { IDLE, BUSY }
@@ -161,7 +163,8 @@ namespace MinimalGCS
                 var lblTitle = new Label { Text = $"DRONE #{_state.SysId}", Location = new Point(10, 10), Size = new Size(340, 25), Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.DarkGreen };
                 _lblStatus = new Label { Text = "READY", Location = new Point(10, 40), Size = new Size(340, 30), Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Color.Blue };
                 _lblTelemetry = new Label { Text = "...", Location = new Point(10, 75), Size = new Size(340, 20), Font = new Font("Segoe UI", 10, FontStyle.Bold) };
-                _lblMsg = new Label { Text = "Initializing...", Location = new Point(10, 100), Size = new Size(340, 40), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
+                _lblGPS = new Label { Text = "Lat: 0.0000000  Lng: 0.0000000", Location = new Point(10, 95), Size = new Size(340, 20), Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.DarkSlateGray };
+                _lblMsg = new Label { Text = "Initializing...", Location = new Point(10, 115), Size = new Size(340, 30), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
 
                 _btnStart = CreateBtn("START MISSION", Color.FromArgb(40, 167, 69), 150);
                 _btnPause = CreateBtn("PAUSE", Color.FromArgb(255, 193, 7), 210);
@@ -201,7 +204,7 @@ namespace MinimalGCS
                 _btnRTL.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(6); };
                 _btnLand.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(9); };
 
-                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, pnlSwipe });
+                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, pnlSwipe });
             }
 
             public void SyncWithState(DroneState state)
@@ -209,6 +212,7 @@ namespace MinimalGCS
                 _lblMsg.Text = state.LastMessage;
                 _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)}";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
+                _lblGPS.Text = $"Lat: {state.Lat:F7}  Lng: {state.Lon:F7}";
                 
                 if (!state.IsConnected) { _lblStatus.Text = "LOST CONNECTION"; _lblStatus.ForeColor = Color.Red; return; }
                 
