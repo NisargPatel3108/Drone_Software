@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.3.2 (Stable) - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.3.3 (Stable) - Prince Tagadiya";
             this.Size = new Size(1000, 700);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
@@ -81,6 +81,9 @@ namespace MinimalGCS
 
                     // Modern MAV_CMD_SET_MESSAGE_INTERVAL (10Hz for Alt)
                     device.Interface.Send(MavLinkCommands.CreateSetMessageInterval(255, 1, device.SysId, 33, 100000));
+                    
+                    // 2Hz for GPS_RAW_INT (24)
+                    device.Interface.Send(MavLinkCommands.CreateSetMessageInterval(255, 1, device.SysId, 24, 500000));
                 }
             }));
         }
