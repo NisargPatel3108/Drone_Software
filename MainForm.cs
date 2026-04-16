@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.3.1 (Stable) - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.3.2 (Stable) - Prince Tagadiya";
             this.Size = new Size(1000, 700);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
@@ -97,9 +97,13 @@ namespace MinimalGCS
                 if (state.IsArmed != armed) state.AddLog(armed ? "MOTORS ARMED" : "MOTORS DISARMED");
                 state.IsArmed = armed;
             }
-            else if (pkt.MessageId == 24 || pkt.MessageId == 124) // GPS_RAW_INT or GPS2_RAW
+            else if (pkt.MessageId == 24) // GPS_RAW_INT
             {
-                if (pkt.Payload.Length > 8) state.GpsFixType = pkt.Payload[8];
+                if (pkt.Payload.Length > 28) state.GpsFixType = pkt.Payload[28];
+            }
+            else if (pkt.MessageId == 124) // GPS2_RAW
+            {
+                if (pkt.Payload.Length > 32) state.GpsFixType = pkt.Payload[32];
             }
             else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) 
             {
@@ -136,6 +140,7 @@ namespace MinimalGCS
         } 
 
         public string GetModeName(uint mode) => mode switch { 0 => "STABILIZE", 3 => "AUTO", 4 => "GUIDED", 5 => "LOITER", 6 => "RTL", 9 => "LAND", _ => $"MODE({mode})" };
+        public string GetGpsStatusName(int fixType) => fixType switch { 0 => "No GPS", 1 => "No Fix", 2 => "2D Fix", 3 => "3D Fix", 4 => "DGPS", 5 => "RTK Float", 6 => "RTK Fixed", _ => $"FIX({fixType})" };
 
         // --- MANAGES ONE DRONE'S UI AND COMMANDS ---
         public class AgriWorkPanel : Panel
@@ -212,7 +217,7 @@ namespace MinimalGCS
                 _lblMsg.Text = state.LastMessage;
                 _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)}";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
-                _lblGPS.Text = $"Lat: {state.Lat:F7}  Lng: {state.Lon:F7}";
+                _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
                 
                 if (!state.IsConnected) { _lblStatus.Text = "LOST CONNECTION"; _lblStatus.ForeColor = Color.Red; return; }
                 
