@@ -190,10 +190,10 @@ namespace MinimalGCS
             {
                 state.CurrentWp = BitConverter.ToUInt16(pkt.Payload, 0);
             }
-            else if (pkt.MessageId == 36 && pkt.Payload.Length >= 23) // SERVO_OUTPUT_RAW
+            else if (pkt.MessageId == 36 && pkt.Payload.Length >= 22) // SERVO_OUTPUT_RAW
             {
-                // servo9_raw is at byte offset 21 (uint16)
-                ushort servo9 = BitConverter.ToUInt16(pkt.Payload, 21);
+                // MAVLink Wire Protocol alignment: servo9_raw is at byte offset 20 (uint16)
+                ushort servo9 = BitConverter.ToUInt16(pkt.Payload, 20);
                 if (servo9 > 500)
                 {
                     // Relay is 1 if PWM > 1500 (Pump OFF), 0 if PWM <= 1500 (Pump ON)
