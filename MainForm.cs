@@ -85,36 +85,39 @@ namespace MinimalGCS
                     // 2Hz for GPS_RAW_INT (24)
                     device.Interface.Send(MavLinkCommands.CreateSetMessageInterval(255, 1, device.SysId, 24, 500000));
 
-                    // --- AUTOMATIC GCS RELAY FOR MISSION PLANNER (UDP 14550) ---
+                    // --- AUTOMATIC GCS RELAY FOR MISSION PLANNER (UDP 14550 PUSH) ---
                     if (device.Interface is SerialInterface)
                     {
                         try
                         {
+                            // Let the system choose a random free local port, so Mission Planner is free to bind to 14550!
                             var udpRelay = new System.Net.Sockets.UdpClient();
-                            udpRelay.Client.SetSocketOption(System.Net.Sockets.SocketOptionLevel.Socket, System.Net.Sockets.SocketOptionName.ReuseAddress, true);
-                            udpRelay.Client.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Any, 14550));
-                            
                             var remoteEP = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
 
                             // 1. Forward incoming UDP packets from Mission Planner to the physical Serial port
                             Task.Run(() =>
                             {
-                                while (device.Interface.IsOpen)
+                                try
                                 {
-                                    try
+                                    udpRelay.Client.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Any, 14551));
+                                    while (device.Interface.IsOpen)
                                     {
-                                        byte[] fromMP = udpRelay.Receive(ref remoteEP);
-                                        if (fromMP.Length > 0 && device.Interface.IsOpen)
+                                        try
                                         {
-                                            device.Interface.Send(fromMP);
+                                            byte[] fromMP = udpRelay.Receive(ref remoteEP);
+                                            if (fromMP.Length > 0 && device.Interface.IsOpen)
+                                            {
+                                                device.Interface.Send(fromMP);
+                                            }
                                         }
+                                        catch { }
                                     }
-                                    catch { }
                                 }
+                                catch { }
                                 try { udpRelay.Close(); } catch { }
                             });
 
-                            // 2. Mirror telemetry data received from Serial to Mission Planner via UDP
+                            // 2. Push telemetry data received from Serial to local UDP port 14550
                             device.Interface.OnDataReceived += (data) =>
                             {
                                 try
