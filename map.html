@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta charset="utf-8" />
+    <title>Agri-Drone GCS Map</title>
+    <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+    </style>
+    <!-- Leaflet Assets -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        var map;
+        var droneMarker;
+        var waypointMarkers = [];
+        var pathLine;
+
+        // Custom high-fidelity inline SVG drone with dynamic rotate support
+        var droneIcon = L.divIcon({
+            html: '<div id="drone-element" style="transition: transform 0.1s linear; transform: rotate(0deg); display: flex; align-items: center; justify-content: center;">' +
+                  '<svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                  '  <circle cx="32" cy="32" r="28" fill="rgba(40, 167, 69, 0.2)" stroke="#28A745" stroke-width="2" stroke-dasharray="4 2"/>' +
+                  '  <!-- Drone Body -->' +
+                  '  <rect x="29" y="8" width="6" height="48" rx="3" fill="#333" stroke="white" stroke-width="1.5"/>' +
+                  '  <rect x="8" y="29" width="48" height="6" rx="3" fill="#333" stroke="white" stroke-width="1.5"/>' +
+                  '  <circle cx="32" cy="32" r="8" fill="#FF4500" stroke="white" stroke-width="2"/>' +
+                  '  <!-- Rotors -->' +
+                  '  <circle cx="32" cy="8" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
+                  '  <circle cx="32" cy="56" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
+                  '  <circle cx="8" cy="32" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
+                  '  <circle cx="56" cy="32" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
+                  '  <!-- Direction Indicator (Nose) -->' +
+                  '  <path d="M32 20 L27 30 L37 30 Z" fill="white"/>' +
+                  '</svg>' +
+                  '</div>',
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+        });
+
+        // Custom waypoint icon with beautiful green background and white text
+        function createWpIcon(number) {
+            return L.divIcon({
+                html: '<div style="background-color: #28a745; color: white; border: 2.5px solid white; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-family: \'Segoe UI\', sans-serif; font-size: 12px; box-shadow: 0 3px 6px rgba(0,0,0,0.4);">' + number + '</div>',
+                iconSize: [26, 26],
+                iconAnchor: [13, 13]
+            });
+        }
+
+        window.onload = function() {
+            // Initial coordinate setup (Gujarat, India location matching user's field tests)
+            map = L.map('map', {
+                zoomControl: true,
+                attributionControl: false
+            }).setView([22.5600287, 72.9202776], 17);
+
+            // High contrast OpenStreetMap layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19
+            }).addTo(map);
+
+            // Add live drone tracking marker
+            droneMarker = L.marker([22.5600287, 72.9202776], { icon: droneIcon }).addTo(map);
+
+            // Yellow connecting path lines
+            pathLine = L.polyline([], { color: '#FFD700', weight: 4, opacity: 0.9, lineJoin: 'round' }).addTo(map);
+        };
+
+        function updateDrone(lat, lon, heading) {
+            var pos = [lat, lon];
+            droneMarker.setLatLng(pos);
+
+            // Rotate drone SVG to heading angle
+            var el = document.getElementById("drone-element");
+            if (el) {
+                el.style.transform = "rotate(" + heading + "deg)";
+            }
+
+            // Auto pan to track drone
+            map.panTo(pos);
+        }
+
+        function clearWaypoints() {
+            for (var i = 0; i < waypointMarkers.length; i++) {
+                map.removeLayer(waypointMarkers[i]);
+            }
+            waypointMarkers = [];
+            pathLine.setLatLngs([]);
+        }
+
+        function addWaypoint(lat, lon, index) {
+            var marker = L.marker([lat, lon], { icon: createWpIcon(index) }).addTo(map);
+            waypointMarkers.push(marker);
+
+            // Draw line
+            pathLine.addLatLng([lat, lon]);
+
+            // Adjust zoom to bound all waypoints comfortably
+            if (waypointMarkers.length > 1) {
+                var group = new L.featureGroup(waypointMarkers);
+                map.fitBounds(group.getBounds().pad(0.1));
+            }
+        }
+    </script>
+</body>
+</html>

@@ -14,6 +14,7 @@ namespace MinimalGCS
     {
         private AutoConnector _connector;
         private FlowLayoutPanel _workArea;
+        private WebBrowser _mapBrowser;
         private Label _lblSearching;
         private System.Windows.Forms.Timer _uiTicker;
         
@@ -39,18 +40,88 @@ namespace MinimalGCS
         private void SetupAgriUI()
         {
             this.Text = "Agri-Drone Enterprise v1.3.5 (Stable) - Prince Tagadiya";
-            this.Size = new Size(1000, 700);
+            this.Size = new Size(1200, 750);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
-            _workArea = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(240, 240, 240), Padding = new Padding(15) };
-            this.Controls.Add(_workArea);
-            _workArea.BringToFront();
+            var splitContainer = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                SplitterDistance = 800,
+                FixedPanel = FixedPanel.Panel2,
+                BorderStyle = BorderStyle.None
+            };
+            this.Controls.Add(splitContainer);
 
-            _lblSearching = new Label { Text = "SCANNING FOR FLEET...", Size = new Size(380, 100), TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.Gray };
+            _mapBrowser = new WebBrowser
+            {
+                Dock = DockStyle.Fill,
+                ScrollBarsEnabled = false,
+                WebBrowserShortcutsEnabled = false
+            };
+            splitContainer.Panel1.Controls.Add(_mapBrowser);
+
+            _workArea = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.FromArgb(240, 240, 240),
+                Padding = new Padding(15)
+            };
+            splitContainer.Panel2.Controls.Add(_workArea);
+
+            _lblSearching = new Label
+            {
+                Text = "SCANNING FOR FLEET...",
+                Size = new Size(340, 100),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 12, FontStyle.Bold),
+                ForeColor = Color.Gray
+            };
             _workArea.Controls.Add(_lblSearching);
 
             btnSmartScan.Visible = cmbDrones.Visible = btnConnect.Visible = lblStatus.Visible = cmbActiveDrone.Visible = groupControl.Visible = false;
             lblWatermark.BringToFront();
+
+            // Load map file
+            string mapPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "map.html");
+            if (!System.IO.File.Exists(mapPath))
+            {
+                mapPath = @"a:\AGRI\Drone_Software\map.html";
+            }
+            _mapBrowser.Navigate(new Uri(mapPath));
+        }
+
+        public void ClearMapWaypoints()
+        {
+            this.Invoke((MethodInvoker)delegate {
+                try
+                {
+                    _mapBrowser.Document.InvokeScript("clearWaypoints");
+                }
+                catch { }
+            });
+        }
+
+        public void AddMapWaypoint(double lat, double lon, int index)
+        {
+            this.Invoke((MethodInvoker)delegate {
+                try
+                {
+                    _mapBrowser.Document.InvokeScript("addWaypoint", new object[] { lat, lon, index });
+                }
+                catch { }
+            });
+        }
+
+        public void UpdateDroneMap(double lat, double lon, float heading)
+        {
+            this.Invoke((MethodInvoker)delegate {
+                try
+                {
+                    _mapBrowser.Document.InvokeScript("updateDrone", new object[] { lat, lon, heading });
+                }
+                catch { }
+            });
         }
 
         private void OnDeviceConnected(DiscoveredDevice device)
@@ -191,6 +262,10 @@ namespace MinimalGCS
                 state.Lat = BitConverter.ToInt32(pkt.Payload, 4) / 10000000.0;
                 state.Lon = BitConverter.ToInt32(pkt.Payload, 8) / 10000000.0;
                 state.Alt = BitConverter.ToInt32(pkt.Payload, 16) / 1000.0f;
+                if (pkt.Payload.Length >= 28)
+                {
+                    state.Heading = BitConverter.ToUInt16(pkt.Payload, 26) / 100.0f;
+                }
                 if (state.Alt > state.MaxAlt) state.MaxAlt = state.Alt;
             }
             else if (pkt.MessageId == 40 && pkt.Payload.Length >= 4) // MISSION_REQUEST
@@ -361,6 +436,12 @@ namespace MinimalGCS
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
                 _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} (Sats: {state.SatellitesCount} | HDOP: {state.Hdop:F1}) | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
                 
+                // Track dynamic telemetry position and heading on Leaflet Map
+                if (state.Lat != 0.0 && state.Lon != 0.0)
+                {
+                    _main.UpdateDroneMap(state.Lat, state.Lon, state.Heading);
+                }
+                
                 // Sync Pump button UI state dynamically
                 if (state.Relay1 == 0) // ON
                 {
@@ -510,6 +591,16 @@ namespace MinimalGCS
                     _uploadQueue = items;
                     _state.TotalWp = items.Count;
                     _state.AddLog($"Loaded {items.Count} Waypoints from file!");
+
+                    // Render mission path on the map
+                    _main.ClearMapWaypoints();
+                    foreach (var item in items)
+                    {
+                        if (item.Lat != 0 && item.Lon != 0 && (item.Command == 16 || item.Command == 22)) 
+                        {
+                            _main.AddMapWaypoint(item.Lat, item.Lon, item.Index);
+                        }
+                    }
 
                     // Start upload sequence: Send MISSION_COUNT to drone
                     byte[] countPkt = MavLinkCommands.CreateMissionCount((byte)255, 1, (byte)BaseSysId, 1, (ushort)items.Count);
