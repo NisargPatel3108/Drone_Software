@@ -166,9 +166,11 @@ namespace MinimalGCS
                 if (state.IsArmed != armed) state.AddLog(armed ? "MOTORS ARMED" : "MOTORS DISARMED");
                 state.IsArmed = armed;
             }
-            else if (pkt.MessageId == 24) // GPS_RAW_INT
+            else if (pkt.MessageId == 24 && pkt.Payload.Length >= 30) // GPS_RAW_INT
             {
-                if (pkt.Payload.Length > 28) state.GpsFixType = pkt.Payload[28];
+                state.GpsFixType = pkt.Payload[28];
+                state.SatellitesCount = pkt.Payload[29];
+                state.Hdop = BitConverter.ToUInt16(pkt.Payload, 20) / 100.0f;
             }
             else if (pkt.MessageId == 124) // GPS2_RAW
             {
@@ -327,7 +329,7 @@ namespace MinimalGCS
                 string pumpStr = state.Relay1 == 0 ? "ON" : "OFF";
                 _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)} | PUMP: {pumpStr} (Relay: {relayStr})";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
-                _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
+                _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} (Sats: {state.SatellitesCount} | HDOP: {state.Hdop:F1}) | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
                 
                 // Sync Pump button UI state dynamically
                 if (state.Relay1 == 0) // ON

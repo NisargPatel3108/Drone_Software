@@ -9,6 +9,8 @@ namespace MinimalGCS.Mavlink
         public bool IsArmed { get; set; }
         public uint Mode { get; set; }
         public int GpsFixType { get; set; }
+        public int SatellitesCount { get; set; }
+        public float Hdop { get; set; }
         public double Lat { get; set; }
         public double Lon { get; set; }
         public float Alt { get; set; }
