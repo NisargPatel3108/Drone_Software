@@ -10,7 +10,12 @@
             height: 100%;
             margin: 0;
             padding: 0;
-            background-color: #f4f4f4;
+            background-color: #1e1e1e;
+        }
+        /* Custom clean style to remove Leaflet's default white square divicon borders */
+        .leaflet-div-icon {
+            background: transparent !important;
+            border: none !important;
         }
     </style>
     <!-- Leaflet Assets -->
@@ -19,32 +24,69 @@
 </head>
 <body>
     <div id="map"></div>
+
+    <!-- Beautiful Glassmorphic Progress HUD Overlay -->
+    <div id="progress-hud" style="position: absolute; top: 15px; right: 15px; z-index: 1000; background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1.5px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 15px; width: 260px; color: white; font-family: 'Segoe UI', sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,0.55); transition: all 0.3s ease;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-weight: bold; font-size: 13.5px; color: #FFD700; letter-spacing: 0.5px;">AGRI-TITAN FLEET</span>
+            <span id="hud-status" style="font-size: 10px; font-weight: bold; background: #007bff; color: white; padding: 2.5px 7px; border-radius: 10px; text-transform: uppercase;">READY</span>
+        </div>
+        
+        <div style="font-size: 11px; color: #aaa; margin-bottom: 5px; display: flex; justify-content: space-between;">
+            <span>Work Progress:</span>
+            <span id="progress-text" style="color: #28a745; font-weight: bold;">0%</span>
+        </div>
+        <div style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; margin-bottom: 12px; overflow: hidden;">
+            <div id="progress-bar" style="background: #28a745; width: 0%; height: 100%; transition: width 0.4s ease-out-in;"></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; border-top: 1.5px solid rgba(255,255,255,0.08); padding-top: 10px;">
+            <div>
+                <span style="color: #888;">Checkpoints:</span><br/>
+                <span id="checkpoint-text" style="font-weight: bold; font-size: 12.5px; color: white;">0 / 0</span>
+            </div>
+            <div>
+                <span style="color: #888;">Est. Remaining:</span><br/>
+                <span id="time-text" style="font-weight: bold; font-size: 12.5px; color: white;">0.0 min</span>
+            </div>
+        </div>
+    </div>
+
     <script>
         var map;
         var droneMarker;
         var waypointMarkers = [];
         var pathLine;
 
-        // Custom high-fidelity inline SVG drone with dynamic rotate support
+        // Custom premium Hexacopter SVG with gold badge AGRI-TITAN name overlay
         var droneIcon = L.divIcon({
-            html: '<div id="drone-element" style="transition: transform 0.1s linear; transform: rotate(0deg); display: flex; align-items: center; justify-content: center;">' +
-                  '<svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                  '  <circle cx="32" cy="32" r="28" fill="rgba(40, 167, 69, 0.2)" stroke="#28A745" stroke-width="2" stroke-dasharray="4 2"/>' +
-                  '  <!-- Drone Body -->' +
-                  '  <rect x="29" y="8" width="6" height="48" rx="3" fill="#333" stroke="white" stroke-width="1.5"/>' +
-                  '  <rect x="8" y="29" width="48" height="6" rx="3" fill="#333" stroke="white" stroke-width="1.5"/>' +
-                  '  <circle cx="32" cy="32" r="8" fill="#FF4500" stroke="white" stroke-width="2"/>' +
-                  '  <!-- Rotors -->' +
-                  '  <circle cx="32" cy="8" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
-                  '  <circle cx="32" cy="56" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
-                  '  <circle cx="8" cy="32" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
-                  '  <circle cx="56" cy="32" r="5" fill="#555" stroke="white" stroke-width="1"/>' +
-                  '  <!-- Direction Indicator (Nose) -->' +
-                  '  <path d="M32 20 L27 30 L37 30 Z" fill="white"/>' +
-                  '</svg>' +
+            html: '<div id="drone-element" style="transition: transform 0.1s linear; transform: rotate(0deg); display: flex; flex-direction: column; align-items: center; justify-content: center; width: 60px; height: 60px;">' +
+                  '  <div style="color: #FFD700; background-color: rgba(20,20,20,0.85); font-size: 8.5px; font-weight: bold; font-family: \'Segoe UI\', sans-serif; padding: 2px 6px; border-radius: 4px; margin-bottom: 2px; border: 0.5px solid #FFD700; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">AGRI-TITAN</div>' +
+                  '  <svg width="46" height="46" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                  '    <circle cx="32" cy="32" r="28" fill="rgba(40, 167, 69, 0.15)" stroke="#28A745" stroke-width="1.5" stroke-dasharray="3 2"/>' +
+                  '    <!-- Hexacopter Arms -->' +
+                  '    <line x1="32" y1="32" x2="48" y2="22.7" stroke="#333" stroke-width="3.5" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="52" y2="32" stroke="#333" stroke-width="3.5" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="48" y2="41.3" stroke="#333" stroke-width="3.5" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="16" y2="41.3" stroke="#333" stroke-width="3.5" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="12" y2="32" stroke="#333" stroke-width="3.5" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="16" y2="22.7" stroke="#333" stroke-width="3.5" stroke-linecap="round"/>' +
+                  '    <!-- Standard Grey Rotors at Rear/Sides -->' +
+                  '    <circle cx="52" cy="32" r="5.5" fill="#555" stroke="white" stroke-width="1.5"/>' +
+                  '    <circle cx="48" cy="41.3" r="5.5" fill="#555" stroke="white" stroke-width="1.5"/>' +
+                  '    <circle cx="16" cy="41.3" r="5.5" fill="#555" stroke="white" stroke-width="1.5"/>' +
+                  '    <circle cx="12" cy="32" r="5.5" fill="#555" stroke="white" stroke-width="1.5"/>' +
+                  '    <!-- Front Rotors Highlighted in High-Visibility Orange/Red for Heading Orientation -->' +
+                  '    <circle cx="48" cy="22.7" r="5.5" fill="#FF4500" stroke="white" stroke-width="1.5"/>' +
+                  '    <circle cx="16" cy="22.7" r="5.5" fill="#FF4500" stroke="white" stroke-width="1.5"/>' +
+                  '    <!-- Core Center Hub -->' +
+                  '    <circle cx="32" cy="32" r="10" fill="#FF4500" stroke="white" stroke-width="2"/>' +
+                  '    <!-- Nose Indicator Arrow inside Center Hub -->' +
+                  '    <path d="M32 16 L27 26 L37 26 Z" fill="white"/>' +
+                  '  </svg>' +
                   '</div>',
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
+            iconSize: [60, 60],
+            iconAnchor: [30, 30]
         });
 
         // Custom waypoint icon with beautiful green background and white text
@@ -96,6 +138,7 @@
             }
             waypointMarkers = [];
             pathLine.setLatLngs([]);
+            updateMissionProgress(0, 0, "Standby");
         }
 
         function addWaypoint(lat, lon, index) {
@@ -110,6 +153,39 @@
                 var group = new L.featureGroup(waypointMarkers);
                 map.fitBounds(group.getBounds().pad(0.1));
             }
+        }
+
+        function updateMissionProgress(currentWp, totalWp, statusStr) {
+            var hudStatus = document.getElementById("hud-status");
+            if (hudStatus) {
+                hudStatus.innerText = statusStr.toUpperCase();
+                if (statusStr.toUpperCase().includes("ACTIVE") || statusStr.toUpperCase().includes("START")) {
+                    hudStatus.style.background = "#28a745";
+                } else if (statusStr.toUpperCase().includes("READY")) {
+                    hudStatus.style.background = "#007bff";
+                } else if (statusStr.toUpperCase().includes("DISARM") || statusStr.toUpperCase().includes("LOST")) {
+                    hudStatus.style.background = "#dc3545";
+                } else {
+                    hudStatus.style.background = "#fd7e14";
+                }
+            }
+
+            // Calculate progress percentage
+            var percent = 0;
+            if (totalWp > 0) {
+                percent = Math.round((currentWp / totalWp) * 100);
+            }
+            if (percent > 100) percent = 100;
+
+            document.getElementById("progress-text").innerText = percent + "%";
+            document.getElementById("progress-bar").style.width = percent + "%";
+            document.getElementById("checkpoint-text").innerText = currentWp + " / " + totalWp;
+
+            // Estimate remaining time: 1.2 minutes per remaining checkpoint leg
+            var remainingWps = totalWp - currentWp;
+            if (remainingWps < 0) remainingWps = 0;
+            var estMinutes = (remainingWps * 1.2).toFixed(1);
+            document.getElementById("time-text").innerText = estMinutes + " min";
         }
     </script>
 </body>

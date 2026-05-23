@@ -94,6 +94,14 @@ namespace MinimalGCS
             }
         }
 
+        public void UpdateMissionHUD(int currentWp, int totalWp, string status)
+        {
+            if (_mapWindow != null && !_mapWindow.IsDisposed)
+            {
+                _mapWindow.UpdateHUD(currentWp, totalWp, status);
+            }
+        }
+
         private void OnDeviceConnected(DiscoveredDevice device)
         {
             this.Invoke((Action)(() =>
@@ -410,6 +418,7 @@ namespace MinimalGCS
                 if (state.Lat != 0.0 && state.Lon != 0.0)
                 {
                     _main.UpdateDroneMap(state.Lat, state.Lon, state.Heading);
+                    _main.UpdateMissionHUD(state.CurrentWp, state.TotalWp, _lblStatus.Text);
                 }
                 
                 // Sync Pump button UI state dynamically
@@ -716,6 +725,17 @@ namespace MinimalGCS
                 try
                 {
                     _mapBrowser.Document.InvokeScript("updateDrone", new object[] { lat, lon, heading });
+                }
+                catch { }
+            });
+        }
+
+        public void UpdateHUD(int currentWp, int totalWp, string status)
+        {
+            this.Invoke((MethodInvoker)delegate {
+                try
+                {
+                    _mapBrowser.Document.InvokeScript("updateMissionProgress", new object[] { currentWp, totalWp, status });
                 }
                 catch { }
             });
