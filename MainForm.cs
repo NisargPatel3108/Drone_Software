@@ -176,12 +176,30 @@ namespace MinimalGCS
             {
                 if (pkt.Payload.Length > 32) state.GpsFixType = pkt.Payload[32];
             }
+            else if (pkt.MessageId == 1 && pkt.Payload.Length >= 16) // SYS_STATUS
+            {
+                ushort voltageMv = BitConverter.ToUInt16(pkt.Payload, 14);
+                float volt = voltageMv / 1000.0f;
+                state.Voltage = volt;
+                if (volt >= 12.6f) state.BatteryPercent = 100;
+                else if (volt <= 10.5f) state.BatteryPercent = 0;
+                else state.BatteryPercent = (int)((volt - 10.5f) / 2.1f * 100);
+            }
             else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) 
             {
                 // GLOBAL_POSITION_INT: 12=Alt_MSL, 16=Alt_AGL (Relative)
                 state.Lat = BitConverter.ToInt32(pkt.Payload, 4) / 10000000.0;
                 state.Lon = BitConverter.ToInt32(pkt.Payload, 8) / 10000000.0;
                 state.Alt = BitConverter.ToInt32(pkt.Payload, 16) / 1000.0f;
+                if (state.Alt > state.MaxAlt) state.MaxAlt = state.Alt;
+            }
+            else if (pkt.MessageId == 40 && pkt.Payload.Length >= 4) // MISSION_REQUEST
+            {
+                ushort seq = BitConverter.ToUInt16(pkt.Payload, 0);
+                if (_panels.TryGetValue((byte)pkt.SystemId, out var panel))
+                {
+                    panel.HandleWaypointRequest(seq);
+                }
             }
             else if (pkt.MessageId == 42 && pkt.Payload.Length >= 2) // MISSION_CURRENT
             {
@@ -239,7 +257,7 @@ namespace MinimalGCS
             public int BaseSysId => _device.SysId;
             
             private Label _lblStatus, _lblTelemetry, _lblGPS, _lblMsg;
-            private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency, _btnPump;
+            private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency, _btnPump, _btnUploadWp;
             
             private enum PanelState { IDLE, BUSY }
             private PanelState _pState = PanelState.IDLE;
@@ -247,7 +265,7 @@ namespace MinimalGCS
             public AgriWorkPanel(DiscoveredDevice device, DroneState state, MainForm main)
             {
                 _device = device; _state = state; _main = main;
-                this.Size = new Size(360, 520); this.BorderStyle = BorderStyle.FixedSingle; this.BackColor = Color.White; this.Margin = new Padding(0, 0, 0, 15);
+                this.Size = new Size(360, 580); this.BorderStyle = BorderStyle.FixedSingle; this.BackColor = Color.White; this.Margin = new Padding(0, 0, 0, 15);
                 InitializeControls();
             }
 
@@ -255,9 +273,9 @@ namespace MinimalGCS
             {
                 var lblTitle = new Label { Text = $"DRONE #{_state.SysId}", Location = new Point(10, 10), Size = new Size(340, 25), Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.DarkGreen };
                 _lblStatus = new Label { Text = "READY", Location = new Point(10, 40), Size = new Size(340, 30), Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Color.Blue };
-                _lblTelemetry = new Label { Text = "...", Location = new Point(10, 75), Size = new Size(340, 20), Font = new Font("Segoe UI", 10, FontStyle.Bold) };
-                _lblGPS = new Label { Text = "Lat: 0.0000000  Lng: 0.0000000", Location = new Point(10, 95), Size = new Size(340, 20), Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.DarkSlateGray };
-                _lblMsg = new Label { Text = "Initializing...", Location = new Point(10, 115), Size = new Size(340, 30), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
+                _lblTelemetry = new Label { Text = "...", Location = new Point(10, 75), Size = new Size(340, 35), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+                _lblGPS = new Label { Text = "Lat: 0.0000000  Lng: 0.0000000", Location = new Point(10, 110), Size = new Size(340, 20), Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.DarkSlateGray };
+                _lblMsg = new Label { Text = "Initializing...", Location = new Point(10, 130), Size = new Size(340, 20), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
 
                 _btnStart = CreateBtn("START MISSION", Color.FromArgb(40, 167, 69), 150);
                 _btnPause = CreateBtn("PAUSE", Color.FromArgb(255, 193, 7), 210);
@@ -270,9 +288,11 @@ namespace MinimalGCS
 
                 _btnPump = new Button { Text = "PUMP: OFF", Location = new Point(185, 330), Size = new Size(155, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnPump.FlatAppearance.BorderSize = 0;
+
+                _btnUploadWp = CreateBtn("UPLOAD .WAYPOINTS FILE", Color.FromArgb(23, 162, 184), 390);
                 
                 // --- SWIPE TO DISARM ---
-                var pnlSwipe = new Panel { Location = new Point(20, 390), Size = new Size(320, 60), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
+                var pnlSwipe = new Panel { Location = new Point(20, 450), Size = new Size(320, 60), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
                 var lblSwipe = new Label { Text = ">>> SWIPE TO DISARM >>>", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
                 var pnlHandle = new Panel { Location = new Point(2, 2), Size = new Size(80, 56), BackColor = Color.White, Cursor = Cursors.Hand };
                 pnlSwipe.Controls.Add(pnlHandle);
@@ -319,15 +339,25 @@ namespace MinimalGCS
                     }
                 };
 
-                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnPump, pnlSwipe });
+                _btnUploadWp.Click += (s, e) =>
+                {
+                    using (var ofd = new OpenFileDialog { Filter = "Waypoint Files (*.waypoints;*.txt)|*.waypoints;*.txt" })
+                    {
+                        if (ofd.ShowDialog() == DialogResult.OK)
+                        {
+                            UploadWaypointFile(ofd.FileName);
+                        }
+                    }
+                };
+
+                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnPump, _btnUploadWp, pnlSwipe });
             }
 
             public void SyncWithState(DroneState state)
             {
                 _lblMsg.Text = state.LastMessage;
-                string relayStr = state.Relay1 == 0 ? "0" : (state.Relay1 == 1 ? "1" : "1");
                 string pumpStr = state.Relay1 == 0 ? "ON" : "OFF";
-                _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)} | PUMP: {pumpStr} (Relay: {relayStr})";
+                _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m (Max: {state.MaxAlt:F1}m) | BATT: {state.BatteryPercent}% ({state.Voltage:F1}V)\nMODE: {_main.GetModeName(state.Mode)} | PUMP: {pumpStr} | WPs: {state.TotalWp}";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
                 _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} (Sats: {state.SatellitesCount} | HDOP: {state.Hdop:F1}) | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
                 
@@ -431,6 +461,88 @@ namespace MinimalGCS
                 _state.AddLog("COMMAND SENT.");
             }
 
+            private List<WaypointItem> _uploadQueue = new List<WaypointItem>();
+
+            private void UploadWaypointFile(string filePath)
+            {
+                try
+                {
+                    var lines = System.IO.File.ReadAllLines(filePath);
+                    if (lines.Length < 2 || !lines[0].StartsWith("QGC WPL"))
+                    {
+                        MessageBox.Show("Invalid Waypoint File Format!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    var items = new List<WaypointItem>();
+                    for (int i = 1; i < lines.Length; i++)
+                    {
+                        var line = lines[i].Trim();
+                        if (string.IsNullOrEmpty(line) || line.StartsWith("#")) continue;
+
+                        var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 12)
+                        {
+                            items.Add(new WaypointItem
+                            {
+                                Index = ushort.Parse(parts[0]),
+                                CurrentWp = byte.Parse(parts[1]),
+                                CoordFrame = byte.Parse(parts[2]),
+                                Command = ushort.Parse(parts[3]),
+                                Param1 = float.Parse(parts[4]),
+                                Param2 = float.Parse(parts[5]),
+                                Param3 = float.Parse(parts[6]),
+                                Param4 = float.Parse(parts[7]),
+                                Lat = double.Parse(parts[8]),
+                                Lon = double.Parse(parts[9]),
+                                Alt = float.Parse(parts[10]),
+                                AutoContinue = byte.Parse(parts[11])
+                            });
+                        }
+                    }
+
+                    if (items.Count == 0)
+                    {
+                        MessageBox.Show("No waypoints found in file!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    _uploadQueue = items;
+                    _state.TotalWp = items.Count;
+                    _state.AddLog($"Loaded {items.Count} Waypoints from file!");
+
+                    // Start upload sequence: Send MISSION_COUNT to drone
+                    byte[] countPkt = MavLinkCommands.CreateMissionCount((byte)255, 1, (byte)BaseSysId, 1, (ushort)items.Count);
+                    _device.Interface.Send(countPkt);
+                    _state.AddLog($"Sent Waypoint Count: {items.Count}");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to parse waypoint file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+
+            public void HandleWaypointRequest(ushort seq)
+            {
+                if (seq < _uploadQueue.Count)
+                {
+                    var wp = _uploadQueue[seq];
+                    byte[] itemPkt = MavLinkCommands.CreateMissionItem(
+                        (byte)255, 1, 
+                        (byte)BaseSysId, 1, 
+                        wp.Index, 
+                        wp.Command, 
+                        wp.Param1, wp.Param2, wp.Param3, wp.Param4, 
+                        (float)wp.Lat, (float)wp.Lon, wp.Alt, 
+                        wp.CoordFrame, 
+                        wp.CurrentWp, 
+                        wp.AutoContinue
+                    );
+                    _device.Interface.Send(itemPkt);
+                    _state.AddLog($"Sent Waypoint #{seq} of {_uploadQueue.Count}");
+                }
+            }
+
             private async Task<bool> ExecuteStep(string log, Action send, Func<bool> verify)
             {
                 _state.AddLog(log);
@@ -458,6 +570,22 @@ namespace MinimalGCS
             private void SendSetMode(uint m) => _device.Interface.Send(MavLinkCommands.CreateSetMode(255, 1, _device.SysId, 1, m));
             private void SendCmd(ushort c, float p1, float p2=0, float p3=0, float p4=0, float p5=0, float p6=0, float p7=0) 
                 => _device.Interface.Send(MavLinkCommands.CreateCommandLong(255, 1, _device.SysId, _device.CompId, c, p1, p2, p3, p4, p5, p6, p7));
+        }
+
+        public class WaypointItem
+        {
+            public ushort Index { get; set; }
+            public byte CurrentWp { get; set; }
+            public byte CoordFrame { get; set; }
+            public ushort Command { get; set; }
+            public float Param1 { get; set; }
+            public float Param2 { get; set; }
+            public float Param3 { get; set; }
+            public float Param4 { get; set; }
+            public double Lat { get; set; }
+            public double Lon { get; set; }
+            public float Alt { get; set; }
+            public byte AutoContinue { get; set; }
         }
     }
 }

@@ -57,6 +57,42 @@ namespace MinimalGCS.Mavlink
             return BuildPacket(sysId, compId, MavLinkMessages.SET_MODE_ID, payload);
         }
 
+        public static byte[] CreateMissionCount(byte sysId, byte compId, byte targetSys, byte targetComp, ushort count)
+        {
+            byte[] payload = new byte[4];
+            payload[0] = (byte)(count & 0xFF);
+            payload[1] = (byte)((count >> 8) & 0xFF);
+            payload[2] = targetSys;
+            payload[3] = targetComp;
+            return BuildPacket(sysId, compId, 44, payload);
+        }
+
+        public static byte[] CreateMissionItem(byte sysId, byte compId, byte targetSys, byte targetComp, ushort seq, ushort command, float p1, float p2, float p3, float p4, float lat, float lon, float alt, byte frame, byte current, byte autocontinue)
+        {
+            byte[] payload = new byte[37];
+            Buffer.BlockCopy(BitConverter.GetBytes(p1), 0, payload, 0, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(p2), 0, payload, 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(p3), 0, payload, 8, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(p4), 0, payload, 12, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(lat), 0, payload, 16, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(lon), 0, payload, 20, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(alt), 0, payload, 24, 4);
+            
+            payload[28] = (byte)(seq & 0xFF);
+            payload[29] = (byte)((seq >> 8) & 0xFF);
+            
+            payload[30] = (byte)(command & 0xFF);
+            payload[31] = (byte)((command >> 8) & 0xFF);
+            
+            payload[32] = targetSys;
+            payload[33] = targetComp;
+            payload[34] = frame;
+            payload[35] = current;
+            payload[36] = autocontinue;
+            
+            return BuildPacket(sysId, compId, 39, payload);
+        }
+
         private static byte _seq = 0;
         private static byte[] BuildPacket(byte sysId, byte compId, uint msgId, byte[] payload)
         {

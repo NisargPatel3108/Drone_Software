@@ -61,7 +61,11 @@ namespace MinimalGCS.Mavlink
             { 253, 83 },  // STATUSTEXT
             { 76, 152 },  // COMMAND_LONG
             { 11, 89 },    // SET_MODE
-            { 36, 142 }   // SERVO_OUTPUT_RAW
+            { 36, 142 },  // SERVO_OUTPUT_RAW
+            { 39, 254 },  // MISSION_ITEM
+            { 40, 230 },  // MISSION_REQUEST
+            { 44, 221 },  // MISSION_COUNT
+            { 47, 153 }   // MISSION_ACK
         };
     }
 }

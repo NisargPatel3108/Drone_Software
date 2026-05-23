@@ -14,6 +14,9 @@ namespace MinimalGCS.Mavlink
         public double Lat { get; set; }
         public double Lon { get; set; }
         public float Alt { get; set; }
+        public float MaxAlt { get; set; }
+        public float Voltage { get; set; }
+        public int BatteryPercent { get; set; }
         public int CurrentWp { get; set; }
         public int ResumeWp { get; set; }
         public int TotalWp { get; set; } = 1; // Default 1 to avoid div by zero
