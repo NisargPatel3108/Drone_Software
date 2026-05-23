@@ -90,7 +90,18 @@ namespace MinimalGCS
 
         private void DispatchPacket(MavLinkPacket pkt)
         {
-            if (!_drones.TryGetValue(pkt.SystemId, out var state)) return;
+            if (!_drones.TryGetValue(pkt.SystemId, out var state))
+            {
+                // Smart Fallback: If we only have one active drone connection, route all telemetry to it
+                if (_drones.Count == 1)
+                {
+                    state = System.Linq.Enumerable.First(_drones.Values);
+                }
+                else
+                {
+                    return;
+                }
+            }
 
             if (pkt.MessageId == MavLinkMessages.HEARTBEAT_ID)
             {

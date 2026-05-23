@@ -189,12 +189,16 @@ namespace MinimalGCS.Connection
 
         private void HandleDiscovery(MavLinkInterface iface, MavLinkPacket pkt)
         {
-            // PRO-LEVEL FILTERING:
-            // Heartbeat Type 6 = GCS. We ONLY want drones (Type 1-5, 10+, etc.)
-            if (pkt.Payload.Length > 4 && pkt.Payload[4] == 6) return;
-            
-            // Skip packets from standard GCS IDs (255) to avoid connecting to ourselves or MAVProxy
-            if (pkt.SystemId == 255) return;
+            // Allow connecting to GCS/Mission Planner (SystemId 255, Heartbeat Type 6) when in UDP mode
+            if (!(iface is UdpInterface))
+            {
+                // PRO-LEVEL FILTERING:
+                // Heartbeat Type 6 = GCS. We ONLY want drones (Type 1-5, 10+, etc.)
+                if (pkt.Payload.Length > 4 && pkt.Payload[4] == 6) return;
+                
+                // Skip packets from standard GCS IDs (255) to avoid connecting to ourselves or MAVProxy
+                if (pkt.SystemId == 255) return;
+            }
 
             // Prevent loopback discovery: do not discover on UDP if already directly connected via Serial
             if (iface is UdpInterface && ConnectedDevices.Values.Any(d => d.SysId == pkt.SystemId && d.Interface is SerialInterface)) return;
