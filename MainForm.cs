@@ -252,7 +252,7 @@ namespace MinimalGCS
             public int BaseSysId => _device.SysId;
             
             private Label _lblStatus, _lblTelemetry, _lblGPS, _lblMsg;
-            private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency;
+            private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency, _btnPump;
             
             private enum PanelState { IDLE, BUSY }
             private PanelState _pState = PanelState.IDLE;
@@ -276,7 +276,13 @@ namespace MinimalGCS
                 _btnPause = CreateBtn("PAUSE", Color.FromArgb(255, 193, 7), 210);
                 _btnResume = CreateBtn("RESUME", Color.FromArgb(23, 162, 184), 210);
                 _btnRTL = CreateBtn("RETURN HOME (RTL)", Color.FromArgb(108, 117, 125), 270);
-                _btnLand = CreateBtn("LAND NOW", Color.FromArgb(255, 69, 0), 330);
+                
+                // Side-by-side layout for LAND NOW and PUMP CONTROL
+                _btnLand = new Button { Text = "LAND NOW", Location = new Point(20, 330), Size = new Size(155, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 69, 0), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnLand.FlatAppearance.BorderSize = 0;
+
+                _btnPump = new Button { Text = "PUMP: OFF", Location = new Point(185, 330), Size = new Size(155, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnPump.FlatAppearance.BorderSize = 0;
                 
                 // --- SWIPE TO DISARM ---
                 var pnlSwipe = new Panel { Location = new Point(20, 390), Size = new Size(320, 60), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
@@ -310,7 +316,23 @@ namespace MinimalGCS
                 _btnRTL.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(6); }; // RTL
                 _btnLand.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(9); }; // LAND
 
-                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, pnlSwipe });
+                _btnPump.Click += (s, e) =>
+                {
+                    if (_state.Relay1 == 0) // Pump is currently ON (Relay 0) -> Turn it OFF (Relay 1)
+                    {
+                        SendCmd(181, 0, 1); // MAV_CMD_DO_SET_RELAY: param1=0 (Relay 1), param2=1 (HIGH/OFF)
+                        _state.Relay1 = 1;
+                        _state.AddLog("PUMP COMMAND: OFF");
+                    }
+                    else // Pump is currently OFF (Relay 1 or default -1) -> Turn it ON (Relay 0)
+                    {
+                        SendCmd(181, 0, 0); // MAV_CMD_DO_SET_RELAY: param1=0 (Relay 1), param2=0 (LOW/ON)
+                        _state.Relay1 = 0;
+                        _state.AddLog("PUMP COMMAND: ON");
+                    }
+                };
+
+                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnPump, pnlSwipe });
             }
 
             public void SyncWithState(DroneState state)
@@ -321,6 +343,18 @@ namespace MinimalGCS
                 _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)} | PUMP: {pumpStr} (Relay: {relayStr})";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
                 _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
+                
+                // Sync Pump button UI state dynamically
+                if (state.Relay1 == 0) // ON
+                {
+                    _btnPump.Text = "PUMP: ON";
+                    _btnPump.BackColor = Color.FromArgb(40, 167, 69); // Rich green for active
+                }
+                else // OFF
+                {
+                    _btnPump.Text = "PUMP: OFF";
+                    _btnPump.BackColor = Color.FromArgb(108, 117, 125); // Sleek gray for off
+                }
                 
                 if (!state.IsConnected) { _lblStatus.Text = "LOST CONNECTION"; _lblStatus.ForeColor = Color.Red; return; }
                 
