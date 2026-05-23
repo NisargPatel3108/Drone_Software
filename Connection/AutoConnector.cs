@@ -25,6 +25,9 @@ namespace MinimalGCS.Connection
         private readonly List<MavLinkInterface> _probingInterfaces = new List<MavLinkInterface>();
         public readonly ConcurrentDictionary<string, DiscoveredDevice> ConnectedDevices = new ConcurrentDictionary<string, DiscoveredDevice>();
         private readonly object _lock = new object();
+        
+        private readonly Dictionary<string, int> _lastBaudIndex = new Dictionary<string, int>();
+        private readonly int[] _bauds = new[] { 57600, 115200, 921600, 38400, 9600 };
 
         public event Action<DiscoveredDevice>? OnDeviceConnected;
         public event Action<string>? OnDeviceDisconnected;
@@ -138,13 +141,30 @@ namespace MinimalGCS.Connection
             {
                 foreach (var port in ports)
                 {
-                    // Comprehensive baud rate check (921600 is modern default, 57600 is legacy SiK)
-                    foreach (var baud in new[] { 921600, 115200, 57600, 38400, 9600 })
+                    // If this port is already connected or currently probing, skip it
+                    if (ConnectedDevices.Keys.Any(k => k.StartsWith(port + "@")) || 
+                        _probingInterfaces.Any(i => i.Name.StartsWith(port + "@")))
                     {
-                        string name = $"{port}@{baud}";
-                        if (ConnectedDevices.ContainsKey(name) || _probingInterfaces.Any(i => i.Name == name)) continue;
-                        try { SetupProbe(new SerialInterface(port, baud)); } catch { }
+                        continue;
                     }
+
+                    // Rotate to the next baud rate to try for this port
+                    if (!_lastBaudIndex.TryGetValue(port, out int index))
+                    {
+                        index = 0;
+                    }
+                    else
+                    {
+                        index = (index + 1) % _bauds.Length;
+                    }
+                    _lastBaudIndex[port] = index;
+
+                    int baud = _bauds[index];
+                    try 
+                    { 
+                        SetupProbe(new SerialInterface(port, baud)); 
+                    } 
+                    catch { }
                 }
             }
         }
