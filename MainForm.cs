@@ -181,24 +181,9 @@ namespace MinimalGCS
                 state.Lon = BitConverter.ToInt32(pkt.Payload, 8) / 10000000.0;
                 state.Alt = BitConverter.ToInt32(pkt.Payload, 16) / 1000.0f;
             }
-            else if (pkt.MessageId == 74 && pkt.Payload.Length >= 12) 
-            {
-                // VFR_HUD: 8=Alt (meters, float)
-                state.Alt = BitConverter.ToSingle(pkt.Payload, 8);
-            }
             else if (pkt.MessageId == 42 && pkt.Payload.Length >= 2) // MISSION_CURRENT
             {
                 state.CurrentWp = BitConverter.ToUInt16(pkt.Payload, 0);
-            }
-            else if (pkt.MessageId == 36 && pkt.Payload.Length >= 22) // SERVO_OUTPUT_RAW
-            {
-                // MAVLink Wire Protocol alignment: servo9_raw is at byte offset 20 (uint16)
-                ushort servo9 = BitConverter.ToUInt16(pkt.Payload, 20);
-                if (servo9 > 500)
-                {
-                    // Relay is 1 if PWM > 1500 (Pump OFF), 0 if PWM <= 1500 (Pump ON)
-                    state.Relay1 = servo9 > 1500 ? 1 : 0;
-                }
             }
             else if (pkt.MessageId == 76 && pkt.Payload.Length >= 30) // COMMAND_LONG
             {
