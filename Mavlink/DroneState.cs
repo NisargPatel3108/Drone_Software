@@ -15,6 +15,7 @@ namespace MinimalGCS.Mavlink
         public int CurrentWp { get; set; }
         public int ResumeWp { get; set; }
         public int TotalWp { get; set; } = 1; // Default 1 to avoid div by zero
+        public int Relay1 { get; set; } = -1; // -1 = unknown, 0 = LOW (Pump ON), 1 = HIGH (Pump OFF)
         public DateTime LastHeartbeat { get; set; }
         public bool IsConnected => (DateTime.Now - LastHeartbeat).TotalSeconds < 10;
         

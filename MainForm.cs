@@ -85,6 +85,9 @@ namespace MinimalGCS
                     // 2Hz for GPS_RAW_INT (24)
                     device.Interface.Send(MavLinkCommands.CreateSetMessageInterval(255, 1, device.SysId, 24, 500000));
 
+                    // 2Hz for SERVO_OUTPUT_RAW (36)
+                    device.Interface.Send(MavLinkCommands.CreateSetMessageInterval(255, 1, device.SysId, 36, 500000));
+
                     // --- AUTOMATIC GCS RELAY FOR MISSION PLANNER (UDP 14550 PUSH) ---
                     if (device.Interface is SerialInterface)
                     {
@@ -186,6 +189,16 @@ namespace MinimalGCS
             {
                 state.CurrentWp = BitConverter.ToUInt16(pkt.Payload, 0);
             }
+            else if (pkt.MessageId == 36 && pkt.Payload.Length >= 23) // SERVO_OUTPUT_RAW
+            {
+                // servo9_raw is at byte offset 21 (uint16)
+                ushort servo9 = BitConverter.ToUInt16(pkt.Payload, 21);
+                if (servo9 > 500)
+                {
+                    // Relay is 1 if PWM > 1500 (Pump OFF), 0 if PWM <= 1500 (Pump ON)
+                    state.Relay1 = servo9 > 1500 ? 1 : 0;
+                }
+            }
             else if (pkt.MessageId == 253) // STATUSTEXT
             {
                 string msg = System.Text.Encoding.ASCII.GetString(pkt.Payload, 1, pkt.Payload.Length - 1).TrimEnd('\0');
@@ -280,7 +293,9 @@ namespace MinimalGCS
             public void SyncWithState(DroneState state)
             {
                 _lblMsg.Text = state.LastMessage;
-                _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)}";
+                string relayStr = state.Relay1 == 0 ? "0" : (state.Relay1 == 1 ? "1" : "1");
+                string pumpStr = state.Relay1 == 0 ? "ON" : "OFF";
+                _lblTelemetry.Text = $"ALTITUDE: {state.Alt:F1}m | MODE: {_main.GetModeName(state.Mode)} | PUMP: {pumpStr} (Relay: {relayStr})";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
                 _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
                 
@@ -326,27 +341,47 @@ namespace MinimalGCS
                 
                 if (!_state.IsArmed)
                 {
-                    _lblStatus.Text = "STARTING...";
-                    _state.AddLog("ACTION -> PREP GUIDED");
-                    SendSetMode(4); 
-                    await Task.Delay(50);
+                    _lblStatus.Text = "LOITER MODE...";
+                    _state.AddLog("ACTION -> SET LOITER");
+                    SendSetMode(5); // LOITER mode
+                    await Task.Delay(500);
+
+                    _lblStatus.Text = "ARMING DRONE...";
                     _state.AddLog("ACTION -> ARMING");
-                    SendCmd(400, 1, 21196); 
-                    await Task.Delay(100);
+                    SendCmd(400, 1, 21196); // ARM
+                    await Task.Delay(1000); // Give it a second to arm
+
+                    // Ask user confirmation
+                    var result = MessageBox.Show(
+                        "Drone is armed in LOITER mode.\nAre you sure you want to start the mission?", 
+                        "Confirm Start Mission", 
+                        MessageBoxButtons.YesNo, 
+                        MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button1,
+                        MessageBoxOptions.DefaultDesktopOnly
+                    );
+
+                    if (result != DialogResult.Yes)
+                    {
+                        _lblStatus.Text = "DISARMING...";
+                        _state.AddLog("MISSION CANCELED -> DISARMING");
+                        SendCmd(400, 0, 21196); // DISARM for safety
+                        await Task.Delay(500);
+                        _pState = PanelState.IDLE;
+                        _lblStatus.Text = "READY";
+                        return;
+                    }
                 }
-                else
-                {
-                    _lblStatus.Text = "RESUMING...";
-                    _state.AddLog("ACTION -> SYNC AUTO");
-                    SendSetMode(3); 
-                    await Task.Delay(50);
-                }
+
+                _lblStatus.Text = "STARTING MISSION...";
+                _state.AddLog("ACTION -> SET AUTO MODE");
+                SendSetMode(3); // AUTO mode
+                await Task.Delay(500);
 
                 _state.AddLog($"ACTION -> START (WP: {_state.ResumeWp})");
-                SendCmd(300, _state.ResumeWp, 0); 
+                SendCmd(300, _state.ResumeWp, 0); // MISSION_START
                 
                 _state.ResumeWp = 0; // Reset after use
-
                 _pState = PanelState.IDLE;
                 _lblStatus.Text = "MISSION ACTIVE";
                 _state.AddLog("COMMAND SENT.");
