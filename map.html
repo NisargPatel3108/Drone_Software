@@ -58,52 +58,62 @@
         var waypointMarkers = [];
         var pathLine;
 
-        // Custom premium Hexacopter SVG with gold badge AGRI-TITAN name overlay
+        // Custom realistic agricultural spraying Hexacopter SVG with gold badge AGRI-TITAN name
         var droneIcon = L.divIcon({
-            html: '<div id="drone-element" style="transition: transform 0.1s linear; transform: rotate(0deg); display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70px; height: 70px;">' +
+            html: '<div id="drone-element" style="transition: transform 0.1s linear; transform: rotate(0deg); display: flex; flex-direction: column; align-items: center; justify-content: center; width: 75px; height: 75px;">' +
                   '  <div style="color: #FFD700; background-color: rgba(20,20,20,0.85); font-size: 8px; font-weight: bold; font-family: \'Segoe UI\', sans-serif; padding: 2px 6px; border-radius: 4px; margin-bottom: 2px; border: 0.5px solid #FFD700; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">AGRI-TITAN</div>' +
-                  '  <svg width="52" height="52" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                  '    <circle cx="32" cy="32" r="29" fill="rgba(40, 167, 69, 0.1)" stroke="#28A745" stroke-width="1.2" stroke-dasharray="3 3"/>' +
-                  '    <!-- Hexacopter Arms -->' +
-                  '    <line x1="32" y1="32" x2="48.5" y2="22.5" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="48.5" y2="22.5" stroke="#FF4500" stroke-width="1.2" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="15.5" y2="22.5" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="15.5" y2="22.5" stroke="#FF4500" stroke-width="1.2" stroke-linecap="round"/>' +
+                  '  <svg width="56" height="56" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                  '    <defs>' +
+                  '      <!-- Liquid tank filling gradient showing turquoise blue spraying mixture -->' +
+                  '      <linearGradient id="liquid" x1="0" y1="1" x2="0" y2="0">' +
+                  '        <stop offset="0%" stop-color="#00bcd4" stop-opacity="0.85"/>' +
+                  '        <stop offset="70%" stop-color="#00e5ff" stop-opacity="0.95"/>' +
+                  '        <stop offset="71%" stop-color="transparent"/>' +
+                  '      </linearGradient>' +
+                  '    </defs>' +
+                  '    <circle cx="32" cy="32" r="30" fill="rgba(40, 167, 69, 0.05)" stroke="#28A745" stroke-width="1" stroke-dasharray="3 2"/>' +
+                  '    <!-- Parallel Carbon Fiber Arms -->' +
+                  '    <line x1="32" y1="32" x2="48" y2="22.7" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="48" y2="22.7" stroke="#FF4500" stroke-width="1" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="16" y2="22.7" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="16" y2="22.7" stroke="#FF4500" stroke-width="1" stroke-linecap="round"/>' +
                   '    <line x1="32" y1="32" x2="51" y2="32" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="51" y2="32" stroke="#6c757d" stroke-width="1.2" stroke-linecap="round"/>' +
                   '    <line x1="32" y1="32" x2="13" y2="32" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="13" y2="32" stroke="#6c757d" stroke-width="1.2" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="48.5" y2="41.5" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="48.5" y2="41.5" stroke="#6c757d" stroke-width="1.2" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="15.5" y2="41.5" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
-                  '    <line x1="32" y1="32" x2="15.5" y2="41.5" stroke="#6c757d" stroke-width="1.2" stroke-linecap="round"/>' +
-                  '    <!-- Front Propellers (Orange) -->' +
-                  '    <circle cx="48.5" cy="22.5" r="4.5" fill="#FF4500" stroke="#fff" stroke-width="1"/>' +
-                  '    <path d="M41 18.2 L56 26.8" stroke="rgba(255, 69, 0, 0.7)" stroke-width="2" stroke-linecap="round"/>' +
-                  '    <circle cx="15.5" cy="22.5" r="4.5" fill="#FF4500" stroke="#fff" stroke-width="1"/>' +
-                  '    <path d="M8 26.8 L23 18.2" stroke="rgba(255, 69, 0, 0.7)" stroke-width="2" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="48" y2="41.3" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
+                  '    <line x1="32" y1="32" x2="16" y2="41.3" stroke="#222" stroke-width="3" stroke-linecap="round"/>' +
+                  '    <!-- Chemical spray tubes running underneath arms -->' +
+                  '    <line x1="28" y1="34" x2="14" y2="42" stroke="#00e5ff" stroke-width="0.8" stroke-dasharray="1 1"/>' +
+                  '    <line x1="36" y1="34" x2="50" y2="42" stroke="#00e5ff" stroke-width="0.8" stroke-dasharray="1 1"/>' +
+                  '    <!-- Front Heavy-Duty Propellers (Orange) -->' +
+                  '    <circle cx="48" cy="22.7" r="4" fill="#FF4500" stroke="#fff" stroke-width="1"/>' +
+                  '    <path d="M40 18.2 L56 27.2" stroke="#FF4500" stroke-width="2" stroke-linecap="round"/>' +
+                  '    <circle cx="16" cy="22.7" r="4" fill="#FF4500" stroke="#fff" stroke-width="1"/>' +
+                  '    <path d="M8 27.2 L24 18.2" stroke="#FF4500" stroke-width="2" stroke-linecap="round"/>' +
                   '    <!-- Rear/Side Propellers (White/Grey) -->' +
-                  '    <circle cx="51" cy="32" r="4.5" fill="#444" stroke="#fff" stroke-width="1"/>' +
-                  '    <path d="M51 25 L51 39" stroke="rgba(255, 255, 255, 0.6)" stroke-width="2" stroke-linecap="round"/>' +
-                  '    <circle cx="13" cy="32" r="4.5" fill="#444" stroke="#fff" stroke-width="1"/>' +
-                  '    <path d="M13 25 L13 39" stroke="rgba(255, 255, 255, 0.6)" stroke-width="2" stroke-linecap="round"/>' +
-                  '    <circle cx="48.5" cy="41.5" r="4.5" fill="#444" stroke="#fff" stroke-width="1"/>' +
-                  '    <path d="M41 45.8 L56 37.2" stroke="rgba(255, 255, 255, 0.6)" stroke-width="2" stroke-linecap="round"/>' +
-                  '    <circle cx="15.5" cy="41.5" r="4.5" fill="#444" stroke="#fff" stroke-width="1"/>' +
-                  '    <path d="M8 37.2 L23 45.8" stroke="rgba(255, 255, 255, 0.6)" stroke-width="2" stroke-linecap="round"/>' +
-                  '    <!-- Landing Gear Skids -->' +
-                  '    <line x1="21" y1="23" x2="21" y2="41" stroke="#444" stroke-width="1.5" stroke-linecap="round"/>' +
-                  '    <line x1="43" y1="23" x2="43" y2="41" stroke="#444" stroke-width="1.5" stroke-linecap="round"/>' +
-                  '    <!-- Main Carbon Core Frame Deck -->' +
-                  '    <rect x="23" y="21" width="18" height="22" rx="5" fill="#222" stroke="#fff" stroke-width="1.5"/>' +
-                  '    <rect x="26" y="24" width="12" height="13" rx="2" fill="#FF4500"/>' +
-                  '    <rect x="27" y="25" width="4" height="11" fill="rgba(255,255,255,0.3)"/>' +
-                  '    <!-- Distinct Directional Nose Arrow Pointer -->' +
-                  '    <path d="M32 10 L26 20 L38 20 Z" fill="#FF4500" stroke="#fff" stroke-width="1"/>' +
+                  '    <circle cx="51" cy="32" r="4" fill="#333" stroke="#fff" stroke-width="1"/>' +
+                  '    <path d="M51 24 L51 40" stroke="#ccc" stroke-width="2" stroke-linecap="round"/>' +
+                  '    <circle cx="13" cy="32" r="4" fill="#333" stroke="#fff" stroke-width="1"/>' +
+                  '    <path d="M13 24 L13 40" stroke="#ccc" stroke-width="2" stroke-linecap="round"/>' +
+                  '    <circle cx="48" cy="41.3" r="4" fill="#333" stroke="#fff" stroke-width="1"/>' +
+                  '    <path d="M40 45.8 L56 36.8" stroke="#ccc" stroke-width="2" stroke-linecap="round"/>' +
+                  '    <circle cx="16" cy="41.3" r="4" fill="#333" stroke="#fff" stroke-width="1"/>' +
+                  '    <path d="M8 36.8 L24 45.8" stroke="#ccc" stroke-width="2" stroke-linecap="round"/>' +
+                  '    <!-- Heavy Payload Octagonal Central Frame Plate -->' +
+                  '    <polygon points="26,18 38,18 44,24 44,38 38,44 26,44 20,38 20,24" fill="#1e1e1e" stroke="#fff" stroke-width="1.2"/>' +
+                  '    <!-- Real Translucent Spray Chemical Tank -->' +
+                  '    <rect x="24" y="22" width="16" height="20" rx="3" fill="#2d2d2d" stroke="#666" stroke-width="0.8"/>' +
+                  '    <rect x="26" y="25" width="12" height="15" rx="1.5" fill="url(#liquid)"/>' +
+                  '    <!-- Tank Cap Lid (Bright Red/Orange) -->' +
+                  '    <rect x="29" y="20" width="6" height="2" fill="#FF4500" rx="0.5"/>' +
+                  '    <!-- Rear GPS Receiver Boom & White Dome Puck -->' +
+                  '    <line x1="32" y1="44" x2="32" y2="51" stroke="#444" stroke-width="2"/>' +
+                  '    <circle cx="32" cy="51" r="4" fill="#fff" stroke="#333" stroke-width="0.8"/>' +
+                  '    <!-- Premium Front-Nose Arrow Pointer -->' +
+                  '    <path d="M32 7 L27 16 L37 16 Z" fill="#FF4500" stroke="#fff" stroke-width="0.8"/>' +
                   '  </svg>' +
                   '</div>',
-            iconSize: [70, 70],
-            iconAnchor: [35, 35]
+            iconSize: [75, 75],
+            iconAnchor: [37.5, 37.5]
         });
 
         // Custom waypoint icon with beautiful green background and white text
