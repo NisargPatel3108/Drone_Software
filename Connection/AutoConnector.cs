@@ -82,10 +82,17 @@ namespace MinimalGCS.Connection
 
                 var tasks = new List<Task>();
                 
-                // Probe only standard local UDP ports where Mission Planner forwards MAVLink telemetry
+                // 1. FAST PROBE: Standard GCS Relay / Mirrored Ports (Industry standard 14550/14551)
                 tasks.Add(Task.Run(() => CheckUdp(14550)));
                 tasks.Add(Task.Run(() => CheckUdp(14551)));
                 tasks.Add(Task.Run(() => CheckUdp(14552)));
+
+                // 2. TCP PROBE (SITL/Bridge)
+                tasks.Add(Task.Run(async () => await CheckTcpAsync("127.0.0.1", 5760))); 
+                tasks.Add(Task.Run(async () => await CheckTcpAsync("127.0.0.1", 5762))); 
+                
+                // 3. SERIAL PROBE (Direct Hardware COM ports)
+                tasks.Add(Task.Run(() => CheckSerialPorts()));
 
                 await Task.WhenAll(tasks);
                 await Task.Delay(1500, token); // Balanced scanning frequency
