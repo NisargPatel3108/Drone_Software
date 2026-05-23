@@ -38,7 +38,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.3.3 (Stable) - Prince Tagadiya";
+            this.Text = "Agri-Drone Enterprise v1.3.5 (Stable) - Prince Tagadiya";
             this.Size = new Size(1000, 700);
             this.BackColor = Color.FromArgb(245, 245, 245);
             
@@ -142,7 +142,7 @@ namespace MinimalGCS
             }
         } 
 
-        public string GetModeName(uint mode) => mode switch { 0 => "STABILIZE", 3 => "AUTO", 4 => "GUIDED", 5 => "LOITER", 6 => "RTL", 9 => "LAND", _ => $"MODE({mode})" };
+        public string GetModeName(uint mode) => mode switch { 0 => "STABILIZE", 3 => "AUTO", 4 => "GUIDED", 5 => "LOITER", 6 => "RTL", 9 => "LAND", 16 => "POSHOLD", _ => $"MODE({mode})" };
         public string GetGpsStatusName(int fixType) => fixType switch { 0 => "No GPS", 1 => "No Fix", 2 => "2D Fix", 3 => "3D Fix", 4 => "DGPS", 5 => "RTK Float", 6 => "RTK Fixed", _ => $"FIX({fixType})" };
 
         // --- MANAGES ONE DRONE'S UI AND COMMANDS ---
@@ -207,10 +207,10 @@ namespace MinimalGCS
                 pnlHandle.MouseUp += (s, e) => { isSwiping = false; pnlHandle.Left = 2; };
 
                 _btnStart.Click += async (s, e) => await CommandStartMission();
-                _btnPause.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(5); };
-                _btnResume.Click += (s, e) => SendSetMode(3);
-                _btnRTL.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(6); };
-                _btnLand.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(9); };
+                _btnPause.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(16); }; // POSHOLD
+                _btnResume.Click += (s, e) => SendSetMode(3); // AUTO
+                _btnRTL.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(6); }; // RTL
+                _btnLand.Click += (s, e) => { _state.ResumeWp = _state.CurrentWp; SendSetMode(9); }; // LAND
 
                 this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, pnlSwipe });
             }
@@ -227,7 +227,7 @@ namespace MinimalGCS
                 if (_pState == PanelState.IDLE)
                 {
                     if (state.Mode == 3) { _lblStatus.Text = "MISSION ACTIVE"; _lblStatus.ForeColor = Color.Green; }
-                    else if (state.Mode == 5) { _lblStatus.Text = "MISSION PAUSED"; _lblStatus.ForeColor = Color.Orange; }
+                    else if (state.Mode == 5 || state.Mode == 16) { _lblStatus.Text = "MISSION PAUSED"; _lblStatus.ForeColor = Color.Orange; }
                     else { _lblStatus.Text = "READY"; _lblStatus.ForeColor = Color.Blue; }
                     
                     // DYNAMIC BUTTON: START (On Ground) vs RESUME (In Air)

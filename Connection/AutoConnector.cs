@@ -56,21 +56,8 @@ namespace MinimalGCS.Connection
 
         private void StartBackend()
         {
-            try
-            {
-                // Cleanup old proxy instances to free ports
-                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = "taskkill", Arguments = "/IM mavproxy.exe /F", CreateNoWindow = true, UseShellExecute = false }).WaitForExit(); } catch { }
-
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "mavproxy.exe",
-                    Arguments = "--master=tcp:127.0.0.1:5760 --out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14551 --nodefaults",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                System.Diagnostics.Process.Start(psi);
-            }
-            catch { }
+            // Removed MAVProxy auto-start to prevent COM port locking.
+            // Application will directly connect via Serial, TCP, or UDP. 
         }
 
         private async Task ScanningLoop(CancellationToken token)
@@ -90,23 +77,24 @@ namespace MinimalGCS.Connection
                     }
                 }
 
-                // INSTANT PARALLEL PROBING
                 var tasks = new List<Task>();
                 
-                // Probe standard UDP ports
-                for (int p = 14540; p <= 14570; p++) { int port = p; tasks.Add(Task.Run(() => CheckUdp(port))); }
+                // 1. FAST PROBE: Standard GCS Relay / Mirrored Ports (Industry standard 14550/14551)
+                tasks.Add(Task.Run(() => CheckUdp(14550)));
+                tasks.Add(Task.Run(() => CheckUdp(14551)));
+
+                // 2. SCAN RANGE: Other local ports
+                for (int p = 14540; p <= 14545; p++) { int port = p; tasks.Add(Task.Run(() => CheckUdp(port))); }
                 
-                // Probe standard TCP ports with short timeout
-                for (int p = 5760; p <= 5780; p++) 
-                { 
-                    int port = p; 
-                    tasks.Add(Task.Run(async () => await CheckTcpAsync("127.0.0.1", port))); 
-                }
+                // 3. TCP PROBE (SITL/Bridge)
+                tasks.Add(Task.Run(async () => await CheckTcpAsync("127.0.0.1", 5760))); 
+                tasks.Add(Task.Run(async () => await CheckTcpAsync("127.0.0.1", 5762))); 
                 
+                // 4. SERIAL PROBE (Direct Hardware)
                 tasks.Add(Task.Run(() => CheckSerialPorts()));
 
                 await Task.WhenAll(tasks);
-                await Task.Delay(1000, token); // Faster scanning (1s) for better user experience
+                await Task.Delay(1500, token); // Balanced scanning frequency
             }
         }
 
