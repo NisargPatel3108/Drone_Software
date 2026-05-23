@@ -110,6 +110,7 @@ namespace MinimalGCS
                                             if (fromMP.Length > 0 && device.Interface.IsOpen)
                                             {
                                                 device.Interface.Send(fromMP);
+                                                parser.Parse(fromMP); // Parse locally so our UI updates in real-time
                                             }
                                         }
                                         catch { }
@@ -197,6 +198,28 @@ namespace MinimalGCS
                 {
                     // Relay is 1 if PWM > 1500 (Pump OFF), 0 if PWM <= 1500 (Pump ON)
                     state.Relay1 = servo9 > 1500 ? 1 : 0;
+                }
+            }
+            else if (pkt.MessageId == 76 && pkt.Payload.Length >= 30) // COMMAND_LONG
+            {
+                ushort command = BitConverter.ToUInt16(pkt.Payload, 28);
+                if (command == 181) // MAV_CMD_DO_SET_RELAY
+                {
+                    float relayNum = BitConverter.ToSingle(pkt.Payload, 0);
+                    float relayState = BitConverter.ToSingle(pkt.Payload, 4);
+                    if (relayNum == 0) // Relay 1
+                    {
+                        state.Relay1 = (int)relayState;
+                    }
+                }
+                else if (command == 183) // MAV_CMD_DO_SET_SERVO
+                {
+                    float channel = BitConverter.ToSingle(pkt.Payload, 0);
+                    float pwm = BitConverter.ToSingle(pkt.Payload, 4);
+                    if (channel == 9) // Servo 9 (AUX1)
+                    {
+                        state.Relay1 = pwm > 1500 ? 1 : 0;
+                    }
                 }
             }
             else if (pkt.MessageId == 253) // STATUSTEXT
