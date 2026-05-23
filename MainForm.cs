@@ -14,7 +14,7 @@ namespace MinimalGCS
     {
         private AutoConnector _connector;
         private FlowLayoutPanel _workArea;
-        private MapForm _mapWindow;
+        private WebBrowser _mapBrowser;
         private Label _lblSearching;
         private System.Windows.Forms.Timer _uiTicker;
         
@@ -26,10 +26,6 @@ namespace MinimalGCS
         {
             InitializeComponent();
             SetupAgriUI();
-            
-            // Show the floating tracking map window next to main form
-            _mapWindow = new MapForm();
-            _mapWindow.Show();
 
             _connector = new AutoConnector();
             _connector.OnDeviceConnected += OnDeviceConnected;
@@ -43,18 +39,44 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.3.5 (Stable) - Prince Tagadiya";
-            this.Size = new Size(410, 720);
-            this.BackColor = Color.FromArgb(245, 245, 245);
-            
+            this.Text = "Agri-Drone Enterprise v1.4.0 - AGRI-TITAN GCS";
+            this.Size = new Size(1280, 750);
+            this.BackColor = Color.FromArgb(30, 30, 30);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Vertical,
+                SplitterDistance = 850,
+                FixedPanel = FixedPanel.Panel2,
+                BackColor = Color.FromArgb(40, 40, 40),
+                SplitterWidth = 3
+            };
+            this.Controls.Add(split);
+
+            // LEFT: Satellite Map
+            _mapBrowser = new WebBrowser
+            {
+                Dock = DockStyle.Fill,
+                ScrollBarsEnabled = false,
+                WebBrowserShortcutsEnabled = false
+            };
+            split.Panel1.Controls.Add(_mapBrowser);
+
+            string mapPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "map.html");
+            if (!System.IO.File.Exists(mapPath)) mapPath = @"a:\AGRI\Drone_Software\map.html";
+            _mapBrowser.Navigate(new Uri(mapPath));
+
+            // RIGHT: Controls Panel
             _workArea = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
-                BackColor = Color.FromArgb(240, 240, 240),
-                Padding = new Padding(15)
+                BackColor = Color.FromArgb(245, 245, 245),
+                Padding = new Padding(10)
             };
-            this.Controls.Add(_workArea);
+            split.Panel2.Controls.Add(_workArea);
 
             _lblSearching = new Label
             {
@@ -72,34 +94,22 @@ namespace MinimalGCS
 
         public void ClearMapWaypoints()
         {
-            if (_mapWindow != null && !_mapWindow.IsDisposed)
-            {
-                _mapWindow.ClearWaypoints();
-            }
+            try { _mapBrowser?.Document?.InvokeScript("clearWaypoints"); } catch { }
         }
 
         public void AddMapWaypoint(double lat, double lon, int index)
         {
-            if (_mapWindow != null && !_mapWindow.IsDisposed)
-            {
-                _mapWindow.AddWaypoint(lat, lon, index);
-            }
+            try { _mapBrowser?.Document?.InvokeScript("addWaypoint", new object[] { lat, lon, index }); } catch { }
         }
 
         public void UpdateDroneMap(double lat, double lon, float heading)
         {
-            if (_mapWindow != null && !_mapWindow.IsDisposed)
-            {
-                _mapWindow.UpdateDrone(lat, lon, heading);
-            }
+            try { _mapBrowser?.Document?.InvokeScript("updateDrone", new object[] { lat, lon, heading }); } catch { }
         }
 
         public void UpdateMissionHUD(int currentWp, int totalWp, string status)
         {
-            if (_mapWindow != null && !_mapWindow.IsDisposed)
-            {
-                _mapWindow.UpdateHUD(currentWp, totalWp, status);
-            }
+            try { _mapBrowser?.Document?.InvokeScript("updateMissionProgress", new object[] { currentWp, totalWp, status }); } catch { }
         }
 
         private void OnDeviceConnected(DiscoveredDevice device)
@@ -658,97 +668,5 @@ namespace MinimalGCS
             public byte AutoContinue { get; set; }
         }
 
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (_mapWindow != null)
-            {
-                _mapWindow.Dispose();
-            }
-            base.OnFormClosing(e);
-        }
-    }
-
-    public class MapForm : Form
-    {
-        private WebBrowser _mapBrowser;
-
-        public MapForm()
-        {
-            this.Text = "Agri-Drone Live Tracking Map (Satellite) - Prince Tagadiya";
-            this.Size = new Size(850, 650);
-            this.StartPosition = FormStartPosition.Manual;
-            this.Location = new Point(Screen.PrimaryScreen.WorkingArea.Width - 900, 50);
-            this.ShowInTaskbar = true;
-
-            _mapBrowser = new WebBrowser
-            {
-                Dock = DockStyle.Fill,
-                ScrollBarsEnabled = false,
-                WebBrowserShortcutsEnabled = false
-            };
-            this.Controls.Add(_mapBrowser);
-
-            // Load map file
-            string mapPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "map.html");
-            if (!System.IO.File.Exists(mapPath))
-            {
-                mapPath = @"a:\AGRI\Drone_Software\map.html";
-            }
-            _mapBrowser.Navigate(new Uri(mapPath));
-        }
-
-        public void ClearWaypoints()
-        {
-            this.Invoke((MethodInvoker)delegate {
-                try
-                {
-                    _mapBrowser.Document.InvokeScript("clearWaypoints");
-                }
-                catch { }
-            });
-        }
-
-        public void AddWaypoint(double lat, double lon, int index)
-        {
-            this.Invoke((MethodInvoker)delegate {
-                try
-                {
-                    _mapBrowser.Document.InvokeScript("addWaypoint", new object[] { lat, lon, index });
-                }
-                catch { }
-            });
-        }
-
-        public void UpdateDrone(double lat, double lon, float heading)
-        {
-            this.Invoke((MethodInvoker)delegate {
-                try
-                {
-                    _mapBrowser.Document.InvokeScript("updateDrone", new object[] { lat, lon, heading });
-                }
-                catch { }
-            });
-        }
-
-        public void UpdateHUD(int currentWp, int totalWp, string status)
-        {
-            this.Invoke((MethodInvoker)delegate {
-                try
-                {
-                    _mapBrowser.Document.InvokeScript("updateMissionProgress", new object[] { currentWp, totalWp, status });
-                }
-                catch { }
-            });
-        }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (e.CloseReason == CloseReason.UserClosing)
-            {
-                e.Cancel = true;
-                this.Hide();
-            }
-            base.OnFormClosing(e);
-        }
     }
 }
