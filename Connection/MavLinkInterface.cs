@@ -35,7 +35,7 @@ namespace MinimalGCS.Connection
             _port = port;
             _client = new UdpClient();
             _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            _client.Client.Bind(new IPEndPoint(IPAddress.Any, _port));
+            _client.Client.Bind(new IPEndPoint(IPAddress.Loopback, _port));
             _client.Client.ReceiveTimeout = 1000;
         }
 

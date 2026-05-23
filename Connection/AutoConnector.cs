@@ -173,18 +173,21 @@ namespace MinimalGCS.Connection
             iface.OnDataReceived += data => parser.Parse(data);
             iface.StartReading();
 
-            // Auto-cleanup probe after 5 seconds if not discovered to free up ports/resources
-            Task.Run(async () => {
-                await Task.Delay(5000);
-                lock (_lock)
-                {
-                    if (_probingInterfaces.Contains(iface))
+            // Auto-cleanup probe after 5 seconds if not discovered to free up ports/resources (except UDP)
+            if (!(iface is UdpInterface))
+            {
+                Task.Run(async () => {
+                    await Task.Delay(5000);
+                    lock (_lock)
                     {
-                        _probingInterfaces.Remove(iface);
-                        iface.Close();
+                        if (_probingInterfaces.Contains(iface))
+                        {
+                            _probingInterfaces.Remove(iface);
+                            iface.Close();
+                        }
                     }
-                }
-            });
+                });
+            }
         }
 
         private void HandleDiscovery(MavLinkInterface iface, MavLinkPacket pkt)
