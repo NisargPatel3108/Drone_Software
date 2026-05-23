@@ -185,6 +185,9 @@ namespace MinimalGCS.Connection
             // Skip packets from standard GCS IDs (255) to avoid connecting to ourselves or MAVProxy
             if (pkt.SystemId == 255) return;
 
+            // Prevent loopback discovery: do not discover on UDP if already directly connected via Serial
+            if (iface is UdpInterface && ConnectedDevices.Values.Any(d => d.SysId == pkt.SystemId && d.Interface is SerialInterface)) return;
+
             if (ConnectedDevices.TryGetValue(iface.Name, out var device))
             {
                 device.LastHeartbeat = DateTime.Now;
