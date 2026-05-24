@@ -87,7 +87,7 @@ namespace MinimalGCS
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.Sizable;
             this.MaximizeBox = true;
             this.Name = "MainForm";
-            this.Text = "Agri-Drone Enterprise v1.3.3";
+            this.Text = "Agri-Drone Enterprise v1.7.0";
             
             this.groupControl.ResumeLayout(false);
             this.ResumeLayout(false);

@@ -65,7 +65,10 @@ namespace MinimalGCS.Mavlink
             { 39, 254 },  // MISSION_ITEM
             { 40, 230 },  // MISSION_REQUEST
             { 44, 221 },  // MISSION_COUNT
-            { 47, 153 }   // MISSION_ACK
+            { 47, 153 },  // MISSION_ACK
+            { 20, 89 },   // PARAM_REQUEST_READ
+            { 22, 220 },  // PARAM_VALUE
+            { 23, 168 }   // PARAM_SET
         };
     }
 }

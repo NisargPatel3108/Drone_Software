@@ -120,5 +120,37 @@ namespace MinimalGCS.Mavlink
             
             return packet;
         }
+
+        public static byte[] CreateParamRequestRead(byte sysId, byte compId, byte targetSys, byte targetComp, string paramId)
+        {
+            byte[] payload = new byte[20];
+            // int16 param_index = -1
+            payload[0] = 0xFF;
+            payload[1] = 0xFF;
+            payload[2] = targetSys;
+            payload[3] = targetComp;
+            
+            byte[] idBytes = System.Text.Encoding.ASCII.GetBytes(paramId);
+            int copyLen = Math.Min(idBytes.Length, 16);
+            Buffer.BlockCopy(idBytes, 0, payload, 4, copyLen);
+            
+            return BuildPacket(sysId, compId, 20, payload);
+        }
+
+        public static byte[] CreateParamSet(byte sysId, byte compId, byte targetSys, byte targetComp, string paramId, float val, byte paramType)
+        {
+            byte[] payload = new byte[23];
+            Buffer.BlockCopy(BitConverter.GetBytes(val), 0, payload, 0, 4);
+            payload[4] = targetSys;
+            payload[5] = targetComp;
+            
+            byte[] idBytes = System.Text.Encoding.ASCII.GetBytes(paramId);
+            int copyLen = Math.Min(idBytes.Length, 16);
+            Buffer.BlockCopy(idBytes, 0, payload, 6, copyLen);
+            
+            payload[22] = paramType; // e.g. 9 for REAL32
+            
+            return BuildPacket(sysId, compId, 23, payload);
+        }
     }
 }

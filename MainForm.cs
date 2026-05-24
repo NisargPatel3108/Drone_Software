@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using MinimalGCS.Connection;
@@ -10,6 +11,19 @@ using MinimalGCS.Mavlink;
 
 namespace MinimalGCS
 {
+    [ComVisible(true)]
+    public class MapBridge
+    {
+        private MainForm _main;
+        public MapBridge(MainForm main) { _main = main; }
+        public void TriggerAction(string action, string payload)
+        {
+            _main.Invoke((MethodInvoker)delegate {
+                _main.HandleMapAction(action, payload);
+            });
+        }
+    }
+
     public partial class MainForm : Form
     {
         private AutoConnector _connector;
@@ -47,7 +61,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "AGRI-TITAN GCS v1.5.0 — PRIMARY";
+            this.Text = "AGRI-TITAN GCS v1.7.0 — PRIMARY";
             this.Size = new Size(1340, 780);
             this.BackColor = Color.FromArgb(30, 30, 30);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -65,10 +79,12 @@ namespace MinimalGCS
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Vertical,
-                SplitterDistance = 400,
+                SplitterDistance = 480,
                 FixedPanel = FixedPanel.Panel1,
+                IsSplitterFixed = false,
                 BackColor = Color.FromArgb(40, 40, 40),
-                SplitterWidth = 3
+                SplitterWidth = 5,
+                Panel1Collapsed = true
             };
             this.Controls.Add(split);
 
@@ -87,7 +103,8 @@ namespace MinimalGCS
             {
                 Dock = DockStyle.Fill,
                 ScrollBarsEnabled = false,
-                WebBrowserShortcutsEnabled = false
+                WebBrowserShortcutsEnabled = false,
+                ObjectForScripting = new MapBridge(this)
             };
             split.Panel2.Controls.Add(_mapBrowser);
 
@@ -143,6 +160,9 @@ namespace MinimalGCS
                     var panel = new AgriWorkPanel(device, state, this);
                     _panels[device.SysId] = panel;
                     _workArea.Controls.Add(panel);
+
+                    // Auto refresh advanced settings on connection!
+                    panel.TriggerRefreshFence();
 
                     // SINGLE READER PER DEVICE -> Dispatches to Central State
                     var parser = new MavLinkParser();
@@ -265,9 +285,23 @@ namespace MinimalGCS
                 // EMA filter for stable voltage reading (alpha=0.1)
                 state.Voltage = state.Voltage < 1f ? volt : state.Voltage * 0.9f + volt * 0.1f;
                 float v = state.Voltage;
-                if (v >= 12.6f) state.BatteryPercent = 100;
-                else if (v <= 10.5f) state.BatteryPercent = 0;
-                else state.BatteryPercent = (int)((v - 10.5f) / 2.1f * 100);
+                
+                // Highly accurate 3S LiPo capacity piecewise curve mapping
+                if (v >= 12.7f) state.BatteryPercent = 100;
+                else if (v <= 9.9f) state.BatteryPercent = 0;
+                else
+                {
+                    if (v >= 12.0f) // 12.0V to 12.7V -> 85% to 100%
+                        state.BatteryPercent = (int)(85 + (v - 12.0f) / 0.7f * 15);
+                    else if (v >= 11.4f) // 11.4V to 12.0V -> 50% to 85%
+                        state.BatteryPercent = (int)(50 + (v - 11.4f) / 0.6f * 35);
+                    else if (v >= 11.1f) // 11.1V to 11.4V -> 20% to 50%
+                        state.BatteryPercent = (int)(20 + (v - 11.1f) / 0.3f * 30);
+                    else if (v >= 10.5f) // 10.5V to 11.1V -> 5% to 20%
+                        state.BatteryPercent = (int)(5 + (v - 10.5f) / 0.6f * 15);
+                    else // 9.9V to 10.5V -> 0% to 5%
+                        state.BatteryPercent = (int)((v - 9.9f) / 0.6f * 5);
+                }
             }
             else if (pkt.MessageId == 33 && pkt.Payload.Length >= 20) 
             {
@@ -322,6 +356,27 @@ namespace MinimalGCS
                     }
                 }
             }
+            else if (pkt.MessageId == 22 && pkt.Payload.Length >= 25) // PARAM_VALUE
+            {
+                float val = BitConverter.ToSingle(pkt.Payload, 0);
+                string paramId = System.Text.Encoding.ASCII.GetString(pkt.Payload, 8, 16).TrimEnd('\0');
+                if (paramId.StartsWith("FENCE_ALT_MAX"))
+                {
+                    state.FenceAltMax = val;
+                    state.AddLog($"DRONE FENCE ALT: {val}m");
+                }
+                else if (paramId.StartsWith("FENCE_RADIUS"))
+                {
+                    state.FenceRadius = val;
+                    state.AddLog($"DRONE FENCE RADIUS: {val}m");
+                }
+            }
+            else if (pkt.MessageId == 47 && pkt.Payload.Length >= 3) // MISSION_ACK
+            {
+                byte type = pkt.Payload[2];
+                string ackStr = type == 0 ? "ACCEPTED (SUCCESS)" : "REJECTED (Code: " + type + ")";
+                state.AddLog("MISSION STATUS: " + ackStr);
+            }
             else if (pkt.MessageId == 253) // STATUSTEXT
             {
                 string msg = System.Text.Encoding.ASCII.GetString(pkt.Payload, 1, pkt.Payload.Length - 1).TrimEnd('\0');
@@ -331,12 +386,54 @@ namespace MinimalGCS
 
         private void Timer_Tick(object sender, EventArgs e)
         {
+            bool anyDroneConnected = false;
             foreach (var panel in _panels.Values)
             {
                 if (_drones.TryGetValue((byte)panel.BaseSysId, out var state))
                 {
                     panel.SyncWithState(state);
+
+                    if (state.IsConnected)
+                    {
+                        anyDroneConnected = true;
+                        // Push real-time telemetry to the gorgeous floating overlay inside map.html!
+                        try
+                        {
+                            string pumpStr = state.Relay1 == 0 ? "ON" : "OFF";
+                            _mapBrowser?.Document?.InvokeScript("updateTelemetry", new object[] {
+                                state.SysId,
+                                state.IsArmed,
+                                GetModeName(state.Mode),
+                                state.Alt,
+                                state.MaxAlt,
+                                state.BatteryPercent,
+                                state.Voltage,
+                                pumpStr,
+                                state.GroundSpeed,
+                                GetGpsStatusName(state.GpsFixType),
+                                state.SatellitesCount,
+                                state.Hdop,
+                                state.Lat,
+                                state.Lon,
+                                state.LastMessage,
+                                state.FenceAltMax,
+                                state.FenceRadius,
+                                _chkRelayEnabled.Checked,
+                                _lblRelayStatus.Text
+                            });
+                        }
+                        catch { }
+                    }
                 }
+            }
+
+            if (!anyDroneConnected)
+            {
+                try
+                {
+                    _mapBrowser?.Document?.InvokeScript("setConnectedState", new object[] { false });
+                }
+                catch { }
             }
             // Update relay status bar
             if (_relayActive && _relayTxCount > 0)
@@ -360,6 +457,49 @@ namespace MinimalGCS
         public string GetModeName(uint mode) => mode switch { 0 => "STABILIZE", 3 => "AUTO", 4 => "GUIDED", 5 => "LOITER", 6 => "RTL", 9 => "LAND", 16 => "POSHOLD", _ => $"MODE({mode})" };
         public string GetGpsStatusName(int fixType) => fixType switch { 0 => "No GPS", 1 => "No Fix", 2 => "2D Fix", 3 => "3D Fix", 4 => "DGPS", 5 => "RTK Float", 6 => "RTK Fixed", _ => $"FIX({fixType})" };
 
+
+
+        public void HandleMapAction(string action, string payload = "")
+        {
+            try
+            {
+                if (action == "TOGGLE_RELAY")
+                {
+                    bool isChecked = bool.Parse(payload);
+                    _chkRelayEnabled.Checked = isChecked;
+                    return;
+                }
+
+                foreach (var activePanel in _panels.Values)
+                {
+                    if (action == "START") activePanel.TriggerStart();
+                    else if (action == "PAUSE") activePanel.TriggerPause();
+                    else if (action == "RESUME") activePanel.TriggerResume();
+                    else if (action == "RTL") activePanel.TriggerRTL();
+                    else if (action == "LAND") activePanel.TriggerLand();
+                    else if (action == "PUMP") activePanel.TriggerPump();
+                    else if (action == "MISSION_MANAGER") activePanel.TriggerUploadWp();
+                    else if (action == "DISARM") activePanel.TriggerDisarm();
+                    else if (action == "REFRESH_FENCE") activePanel.TriggerRefreshFence();
+                    else if (action == "APPLY_FENCE")
+                    {
+                        var parts = payload.Split(',');
+                        if (parts.Length >= 3)
+                        {
+                            float alt = float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+                            float radius = float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+                            bool enabled = bool.Parse(parts[2]);
+                            activePanel.TriggerApplyFence(alt, radius, enabled);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to execute map action: {ex.Message}", "Error");
+            }
+        }
+
         // --- MANAGES ONE DRONE'S UI AND COMMANDS ---
         public class AgriWorkPanel : Panel
         {
@@ -369,7 +509,7 @@ namespace MinimalGCS
             public int BaseSysId => _device.SysId;
             
             private Label _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _lblWarning;
-            private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency, _btnPump, _btnUploadWp;
+            private Button _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnEmergency, _btnPump, _btnUploadWp, _btnRefreshFence, _btnApplyFence;
             private NumericUpDown _nudGeoAlt, _nudGeoRadius;
             private CheckBox _chkGeoFence;
             private float _geoHomeLat, _geoHomeLon;
@@ -380,36 +520,93 @@ namespace MinimalGCS
             public AgriWorkPanel(DiscoveredDevice device, DroneState state, MainForm main)
             {
                 _device = device; _state = state; _main = main;
-                this.Size = new Size(370, 720); this.BorderStyle = BorderStyle.FixedSingle; this.BackColor = Color.White; this.Margin = new Padding(0, 0, 0, 15);
+                this.Size = new Size(450, 580); this.BorderStyle = BorderStyle.FixedSingle; this.BackColor = Color.White; this.Margin = new Padding(0, 0, 0, 15);
                 InitializeControls();
             }
 
+            public void TriggerStart() => _main.Invoke((MethodInvoker)async delegate { await CommandStartMission(); });
+            public void TriggerPause() => _main.Invoke((MethodInvoker)delegate { _state.ResumeWp = _state.CurrentWp; SendSetMode(16); });
+            public void TriggerResume() => _main.Invoke((MethodInvoker)delegate { SendSetMode(3); });
+            public void TriggerRTL() => _main.Invoke((MethodInvoker)delegate { _state.ResumeWp = _state.CurrentWp; SendSetMode(6); });
+            public void TriggerLand() => _main.Invoke((MethodInvoker)delegate { _state.ResumeWp = _state.CurrentWp; SendSetMode(9); });
+            public void TriggerPump() => _main.Invoke((MethodInvoker)delegate {
+                if (_state.Relay1 == 0)
+                {
+                    SendCmd(181, 0, 1);
+                    _state.Relay1 = 1;
+                    _state.AddLog("PUMP COMMAND: OFF");
+                }
+                else
+                {
+                    SendCmd(181, 0, 0);
+                    _state.Relay1 = 0;
+                    _state.AddLog("PUMP COMMAND: ON");
+                }
+            });
+            public void TriggerUploadWp() => _main.Invoke((MethodInvoker)delegate {
+                using (var frm = new MissionPlannerForm())
+                {
+                    if (frm.ShowDialog() == DialogResult.OK && frm.SelectedMission != null)
+                    {
+                        UploadMission(frm.SelectedMission);
+                    }
+                }
+            });
+            public void TriggerDisarm() => _main.Invoke((MethodInvoker)delegate {
+                SendCmd(400, 0, 21196); // MAV_CMD_COMPONENT_ARM_DISARM: param1=0 (disarm), param2=21196 (force)
+                _state.AddLog("EMERGENCY DISARM VIA MAP SLIDER!");
+            });
+            public void TriggerRefreshFence() => _main.Invoke((MethodInvoker)delegate { RefreshGeofenceConfig(); });
+            public void TriggerApplyFence(float alt, float radius, bool enabled) => _main.Invoke((MethodInvoker)delegate {
+                _nudGeoAlt.Value = (decimal)alt;
+                _nudGeoRadius.Value = (decimal)radius;
+                _chkGeoFence.Checked = enabled;
+                ApplyGeofenceConfig();
+            });
+
             private void InitializeControls()
             {
-                var lblTitle = new Label { Text = $"DRONE #{_state.SysId}", Location = new Point(10, 10), Size = new Size(340, 25), Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.DarkGreen };
-                _lblStatus = new Label { Text = "READY", Location = new Point(10, 40), Size = new Size(340, 30), Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Color.Blue };
-                _lblTelemetry = new Label { Text = "...", Location = new Point(10, 75), Size = new Size(340, 35), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
-                _lblGPS = new Label { Text = "Lat: 0.0000000  Lng: 0.0000000", Location = new Point(10, 110), Size = new Size(340, 20), Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.DarkSlateGray };
-                _lblMsg = new Label { Text = "Initializing...", Location = new Point(10, 130), Size = new Size(340, 20), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
+                // Create TabControl docked to fill the AgriWorkPanel
+                var tc = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+                
+                var tp1 = new TabPage("Mission Control") { BackColor = Color.White };
+                var tp2 = new TabPage("Advanced Settings") { BackColor = Color.White };
+                
+                tc.TabPages.Add(tp1);
+                tc.TabPages.Add(tp2);
+                this.Controls.Add(tc);
+
+                // --- TAB 1: MISSION CONTROL ---
+                var lblTitle = new Label { Text = $"DRONE #{_state.SysId}", Location = new Point(15, 10), Size = new Size(400, 25), Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.DarkGreen };
+                _lblStatus = new Label { Text = "READY", Location = new Point(15, 35), Size = new Size(400, 30), Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Color.Blue };
+                _lblTelemetry = new Label { Text = "...", Location = new Point(15, 70), Size = new Size(400, 35), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+                _lblGPS = new Label { Text = "Lat: 0.0000000  Lng: 0.0000000", Location = new Point(15, 105), Size = new Size(400, 20), Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.DarkSlateGray };
+                _lblMsg = new Label { Text = "Initializing...", Location = new Point(15, 125), Size = new Size(400, 20), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
 
                 _btnStart = CreateBtn("START MISSION", Color.FromArgb(40, 167, 69), 150);
-                _btnPause = CreateBtn("PAUSE", Color.FromArgb(255, 193, 7), 210);
-                _btnResume = CreateBtn("RESUME", Color.FromArgb(23, 162, 184), 210);
+                
+                // Side-by-side layout for PAUSE and RESUME
+                _btnPause = new Button { Text = "PAUSE", Location = new Point(25, 210), Size = new Size(195, 50), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 193, 7), ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnPause.FlatAppearance.BorderSize = 0;
+                
+                _btnResume = new Button { Text = "RESUME", Location = new Point(230, 210), Size = new Size(195, 50), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(23, 162, 184), ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnResume.FlatAppearance.BorderSize = 0;
+
                 _btnRTL = CreateBtn("RETURN HOME (RTL)", Color.FromArgb(108, 117, 125), 270);
                 
                 // Side-by-side layout for LAND NOW and PUMP CONTROL
-                _btnLand = new Button { Text = "LAND NOW", Location = new Point(20, 330), Size = new Size(155, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 69, 0), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnLand = new Button { Text = "LAND NOW", Location = new Point(25, 330), Size = new Size(195, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 69, 0), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnLand.FlatAppearance.BorderSize = 0;
 
-                _btnPump = new Button { Text = "PUMP: OFF", Location = new Point(185, 330), Size = new Size(155, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnPump = new Button { Text = "PUMP: OFF", Location = new Point(230, 330), Size = new Size(195, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnPump.FlatAppearance.BorderSize = 0;
 
-                _btnUploadWp = CreateBtn("UPLOAD .WAYPOINTS FILE", Color.FromArgb(23, 162, 184), 390);
-                
+                _btnUploadWp = CreateBtn("MISSION MANAGER", Color.FromArgb(0, 123, 255), 390);
+
                 // --- SWIPE TO DISARM ---
-                var pnlSwipe = new Panel { Location = new Point(20, 450), Size = new Size(320, 60), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
+                var pnlSwipe = new Panel { Location = new Point(25, 450), Size = new Size(400, 56), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
                 var lblSwipe = new Label { Text = ">>> SWIPE TO DISARM >>>", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
-                var pnlHandle = new Panel { Location = new Point(2, 2), Size = new Size(80, 56), BackColor = Color.White, Cursor = Cursors.Hand };
+                var pnlHandle = new Panel { Location = new Point(2, 2), Size = new Size(80, 52), BackColor = Color.White, Cursor = Cursors.Hand };
                 pnlSwipe.Controls.Add(pnlHandle);
                 pnlSwipe.Controls.Add(lblSwipe);
                 lblSwipe.SendToBack();
@@ -440,15 +637,15 @@ namespace MinimalGCS
 
                 _btnPump.Click += (s, e) =>
                 {
-                    if (_state.Relay1 == 0) // Pump is currently ON (Relay 0) -> Turn it OFF (Relay 1)
+                    if (_state.Relay1 == 0) // Pump is ON -> Turn it OFF
                     {
-                        SendCmd(181, 0, 1); // MAV_CMD_DO_SET_RELAY: param1=0 (Relay 1), param2=1 (HIGH/OFF)
+                        SendCmd(181, 0, 1);
                         _state.Relay1 = 1;
                         _state.AddLog("PUMP COMMAND: OFF");
                     }
-                    else // Pump is currently OFF (Relay 1 or default -1) -> Turn it ON (Relay 0)
+                    else
                     {
-                        SendCmd(181, 0, 0); // MAV_CMD_DO_SET_RELAY: param1=0 (Relay 1), param2=0 (LOW/ON)
+                        SendCmd(181, 0, 0);
                         _state.Relay1 = 0;
                         _state.AddLog("PUMP COMMAND: ON");
                     }
@@ -456,27 +653,40 @@ namespace MinimalGCS
 
                 _btnUploadWp.Click += (s, e) =>
                 {
-                    using (var ofd = new OpenFileDialog { Filter = "Waypoint Files (*.waypoints;*.txt)|*.waypoints;*.txt" })
+                    using (var frm = new MissionPlannerForm())
                     {
-                        if (ofd.ShowDialog() == DialogResult.OK)
+                        if (frm.ShowDialog() == DialogResult.OK && frm.SelectedMission != null)
                         {
-                            UploadWaypointFile(ofd.FileName);
+                            UploadMission(frm.SelectedMission);
                         }
                     }
                 };
 
                 // --- WARNING LABEL ---
-                _lblWarning = new Label { Text = "", Location = new Point(10, 520), Size = new Size(350, 20), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.Red, Visible = false };
+                _lblWarning = new Label { Text = "", Location = new Point(15, 515), Size = new Size(420, 20), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.Red, Visible = false };
 
-                // --- GEO-FENCE SETTINGS ---
-                var lblGeo = new Label { Text = "GEO-FENCE SAFETY", Location = new Point(10, 545), Size = new Size(350, 20), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.DarkSlateGray };
-                _chkGeoFence = new CheckBox { Text = "Enable Geo-Fence", Location = new Point(20, 568), Size = new Size(150, 22), Font = new Font("Segoe UI", 9), Checked = false };
-                var lblMaxAlt = new Label { Text = "Max Alt (m):", Location = new Point(20, 595), Size = new Size(80, 20), Font = new Font("Segoe UI", 9) };
-                _nudGeoAlt = new NumericUpDown { Location = new Point(105, 593), Size = new Size(60, 25), Minimum = 5, Maximum = 200, Value = 30, Font = new Font("Segoe UI", 9) };
-                var lblRadius = new Label { Text = "Radius (m):", Location = new Point(180, 595), Size = new Size(80, 20), Font = new Font("Segoe UI", 9) };
-                _nudGeoRadius = new NumericUpDown { Location = new Point(265, 593), Size = new Size(70, 25), Minimum = 10, Maximum = 2000, Value = 200, Font = new Font("Segoe UI", 9) };
+                tp1.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnPump, _btnUploadWp, pnlSwipe, _lblWarning });
 
-                this.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnPump, _btnUploadWp, pnlSwipe, _lblWarning, lblGeo, _chkGeoFence, lblMaxAlt, _nudGeoAlt, lblRadius, _nudGeoRadius });
+                // --- TAB 2: ADVANCED SETTINGS (GEOFENCE) ---
+                var lblGeo = new Label { Text = "DRONE GEOFENCE CONFIG", Location = new Point(15, 15), Size = new Size(400, 20), Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = Color.DarkSlateGray };
+                _chkGeoFence = new CheckBox { Text = "Enable Geo-Fence Failsafe", Location = new Point(20, 45), Size = new Size(400, 22), Font = new Font("Segoe UI", 9.5f), Checked = true };
+                
+                var lblMaxAlt = new Label { Text = "Max Altitude (m):", Location = new Point(20, 85), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
+                _nudGeoAlt = new NumericUpDown { Location = new Point(160, 83), Size = new Size(80, 25), Minimum = 5, Maximum = 200, Value = 6, Font = new Font("Segoe UI", 9.5f) };
+                
+                var lblRadius = new Label { Text = "Max Radius (m):", Location = new Point(20, 125), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
+                _nudGeoRadius = new NumericUpDown { Location = new Point(160, 123), Size = new Size(80, 25), Minimum = 10, Maximum = 2000, Value = 200, Font = new Font("Segoe UI", 9.5f) };
+
+                _btnRefreshFence = new Button { Text = "REFRESH CONFIG", Location = new Point(25, 175), Size = new Size(195, 45), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnRefreshFence.FlatAppearance.BorderSize = 0;
+
+                _btnApplyFence = new Button { Text = "APPLY CONFIG", Location = new Point(230, 175), Size = new Size(195, 45), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(40, 167, 69), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnApplyFence.FlatAppearance.BorderSize = 0;
+
+                _btnRefreshFence.Click += (s, e) => RefreshGeofenceConfig();
+                _btnApplyFence.Click += (s, e) => ApplyGeofenceConfig();
+
+                tp2.Controls.AddRange(new Control[] { lblGeo, _chkGeoFence, lblMaxAlt, _nudGeoAlt, lblRadius, _nudGeoRadius, _btnRefreshFence, _btnApplyFence });
             }
 
             public void SyncWithState(DroneState state)
@@ -527,9 +737,36 @@ namespace MinimalGCS
                         _lblWarning.Visible = false;
                     }
                 }
+
+                // Update UI values if refreshed from drone (only when drone sends active non-zero configuration)
+                if (state.FenceAltMax > 0 && state.FenceAltMax != (float)_nudGeoAlt.Value && !_nudGeoAlt.Focused)
+                {
+                    _nudGeoAlt.Value = (decimal)state.FenceAltMax;
+                }
+                if (state.FenceRadius > 0 && state.FenceRadius != (float)_nudGeoRadius.Value && !_nudGeoRadius.Focused)
+                {
+                    _nudGeoRadius.Value = (decimal)state.FenceRadius;
+                }
                 
+                // --- SMART SPRAY LOGIC ENGINE ---
+                if (ActiveMission != null && state.IsArmed && state.Mode == 3)
+                {
+                    float safeAlt = _chkGeoFence.Checked ? (float)_nudGeoAlt.Value - 10 : 2; // Rough spray alt
+                    float geoRadius = _chkGeoFence.Checked ? (float)_nudGeoRadius.Value : float.MaxValue;
+                    
+                    int desiredRelay = SprayLogicEngine.EvaluatePumpState(state, ActiveMission, safeAlt, geoRadius);
+                    
+                    if (desiredRelay != _lastPumpState)
+                    {
+                        SendCmd(181, 0, desiredRelay); // MAV_CMD_DO_SET_RELAY: param1=0 (Relay 1), param2=desiredRelay
+                        state.Relay1 = desiredRelay;
+                        _lastPumpState = desiredRelay;
+                        state.AddLog(desiredRelay == 0 ? "SMART PUMP: AUTO-ON" : "SMART PUMP: AUTO-OFF");
+                    }
+                }
+
                 // Sync Pump button UI state
-                _btnPump.Text = state.Relay1 == 0 ? "PUMP: ON" : "PUMP: OFF";
+                _btnPump.Text = state.Relay1 == 0 ? "PUMP: ON (AUTO)" : "PUMP: OFF";
                 _btnPump.BackColor = state.Relay1 == 0 ? Color.FromArgb(40, 167, 69) : Color.FromArgb(108, 117, 125);
                 
                 if (!state.IsConnected) { _lblStatus.Text = "LOST CONNECTION"; _lblStatus.ForeColor = Color.Red; return; }
@@ -624,58 +861,56 @@ namespace MinimalGCS
             }
 
             private List<WaypointItem> _uploadQueue = new List<WaypointItem>();
+            public Mission ActiveMission { get; set; }
+            private int _lastPumpState = 1;
 
-            private void UploadWaypointFile(string filePath)
+            private void UploadMission(Mission mission)
             {
                 try
                 {
-                    var lines = System.IO.File.ReadAllLines(filePath);
-                    if (lines.Length < 2 || !lines[0].StartsWith("QGC WPL"))
+                    if (mission.Waypoints.Count == 0)
                     {
-                        MessageBox.Show("Invalid Waypoint File Format!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show("No waypoints found in mission!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
 
-                    var items = new List<WaypointItem>();
-                    for (int i = 1; i < lines.Length; i++)
-                    {
-                        var line = lines[i].Trim();
-                        if (string.IsNullOrEmpty(line) || line.StartsWith("#")) continue;
+                    ActiveMission = mission;
+                    _uploadQueue = mission.Waypoints;
+                    _state.TotalWp = mission.Waypoints.Count;
+                    _state.AddLog($"Loaded {mission.Waypoints.Count} Waypoints for '{mission.Name}'");
 
-                        var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length >= 12)
+                    // --- DYNAMIC GEOFENCE AUTO-CONFIGURATION (+1m buffer) ---
+                    float missionMaxAlt = 5.0f;
+                    var altWps = mission.Waypoints.Where(w => w.Command == 16 || w.Command == 22).ToList();
+                    if (altWps.Count > 0)
+                    {
+                        missionMaxAlt = altWps.Max(w => w.Alt);
+                    }
+                    float autoGeoAlt = missionMaxAlt + 1.0f;
+
+                    double maxWpRadius = 10.0;
+                    var takeoffWpForRadius = mission.Waypoints.FirstOrDefault(w => w.Command == 22 || w.Index == 1);
+                    if (takeoffWpForRadius != null && takeoffWpForRadius.Lat != 0 && takeoffWpForRadius.Lon != 0)
+                    {
+                        foreach (var wp in mission.Waypoints.Where(w => w.Lat != 0 && w.Lon != 0))
                         {
-                            items.Add(new WaypointItem
-                            {
-                                Index = ushort.Parse(parts[0]),
-                                CurrentWp = byte.Parse(parts[1]),
-                                CoordFrame = byte.Parse(parts[2]),
-                                Command = ushort.Parse(parts[3]),
-                                Param1 = float.Parse(parts[4]),
-                                Param2 = float.Parse(parts[5]),
-                                Param3 = float.Parse(parts[6]),
-                                Param4 = float.Parse(parts[7]),
-                                Lat = double.Parse(parts[8]),
-                                Lon = double.Parse(parts[9]),
-                                Alt = float.Parse(parts[10]),
-                                AutoContinue = byte.Parse(parts[11])
-                            });
+                            double dist = Haversine(takeoffWpForRadius.Lat, takeoffWpForRadius.Lon, wp.Lat, wp.Lon);
+                            if (dist > maxWpRadius) maxWpRadius = dist;
                         }
                     }
+                    float autoGeoRadius = (float)(maxWpRadius + 1.0);
 
-                    if (items.Count == 0)
-                    {
-                        MessageBox.Show("No waypoints found in file!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        return;
-                    }
+                    // Apply configured bounds with safety clamp
+                    _nudGeoAlt.Value = (decimal)Math.Clamp(autoGeoAlt, (float)_nudGeoAlt.Minimum, (float)_nudGeoAlt.Maximum);
+                    _nudGeoRadius.Value = (decimal)Math.Clamp(autoGeoRadius, (float)_nudGeoRadius.Minimum, (float)_nudGeoRadius.Maximum);
+                    _chkGeoFence.Checked = true;
 
-                    _uploadQueue = items;
-                    _state.TotalWp = items.Count;
-                    _state.AddLog($"Loaded {items.Count} Waypoints from file!");
+                    _state.AddLog($"GEOFENCE AUTO-CONFIG: Alt = {autoGeoAlt:F1}m, Radius = {autoGeoRadius:F1}m (+1m buffer applied)");
+                    MessageBox.Show($"Mission uploaded successfully!\n\nAuto-Configured Geo-Fence Safeguards (+1m buffer):\n- Max Altitude: {autoGeoAlt:F1} meters\n- Max Radius: {autoGeoRadius:F1} meters", "Agri-Titan Safeguards Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                     // Render mission path on the map with command types
                     _main.ClearMapWaypoints();
-                    foreach (var item in items)
+                    foreach (var item in mission.Waypoints)
                     {
                         if (item.Lat != 0 && item.Lon != 0 && (item.Command == 16 || item.Command == 22 || item.Command == 21)) 
                         {
@@ -683,15 +918,42 @@ namespace MinimalGCS
                         }
                     }
 
+                    // Set drone home using takeoff waypoint
+                    var takeoffWp = mission.Waypoints.FirstOrDefault(w => w.Command == 22 || w.Index == 1);
+                    if (takeoffWp != null)
+                    {
+                        _geoHomeLat = (float)takeoffWp.Lat;
+                        _geoHomeLon = (float)takeoffWp.Lon;
+                        
+                        // Send MAV_CMD_DO_SET_HOME (179) via MAVLink
+                        byte[] setHomeCmd = MavLinkCommands.CreateCommandLong(
+                            255, 1, (byte)BaseSysId, 1,
+                            179, // MAV_CMD_DO_SET_HOME
+                            0, 0, 0, 0, // params 1-4
+                            (float)takeoffWp.Lat, (float)takeoffWp.Lon, takeoffWp.Alt // params 5-7
+                        );
+                        _device.Interface.Send(setHomeCmd);
+                        _state.AddLog($"Set Drone Home to Takeoff: Lat {takeoffWp.Lat:F6}, Lon {takeoffWp.Lon:F6}");
+                    }
+
                     // Start upload sequence: Send MISSION_COUNT to drone
-                    byte[] countPkt = MavLinkCommands.CreateMissionCount((byte)255, 1, (byte)BaseSysId, 1, (ushort)items.Count);
+                    byte[] countPkt = MavLinkCommands.CreateMissionCount((byte)255, 1, (byte)BaseSysId, 1, (ushort)mission.Waypoints.Count);
                     _device.Interface.Send(countPkt);
-                    _state.AddLog($"Sent Waypoint Count: {items.Count}");
+                    _state.AddLog($"Sent Waypoint Count: {mission.Waypoints.Count}");
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Failed to parse waypoint file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
+            }
+
+            private double Haversine(double lat1, double lon1, double lat2, double lon2)
+            {
+                double R = 6371000;
+                double dLat = (lat2 - lat1) * Math.PI / 180;
+                double dLon = (lon2 - lon1) * Math.PI / 180;
+                double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) + Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+                return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
             }
 
             public void HandleWaypointRequest(ushort seq)
@@ -702,13 +964,13 @@ namespace MinimalGCS
                     byte[] itemPkt = MavLinkCommands.CreateMissionItem(
                         (byte)255, 1, 
                         (byte)BaseSysId, 1, 
-                        wp.Index, 
-                        wp.Command, 
+                        (ushort)wp.Index, 
+                        (ushort)wp.Command, 
                         wp.Param1, wp.Param2, wp.Param3, wp.Param4, 
                         (float)wp.Lat, (float)wp.Lon, wp.Alt, 
-                        wp.CoordFrame, 
-                        wp.CurrentWp, 
-                        wp.AutoContinue
+                        (byte)wp.CoordFrame, 
+                        (byte)wp.CurrentWp, 
+                        (byte)wp.AutoContinue
                     );
                     _device.Interface.Send(itemPkt);
                     _state.AddLog($"Sent Waypoint #{seq} of {_uploadQueue.Count}");
@@ -735,30 +997,52 @@ namespace MinimalGCS
 
             private Button CreateBtn(string t, Color c, int y)
             {
-                var b = new Button { Text = t, Location = new Point(20, y), Size = new Size(320, 50), BackColor = c, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
+                var b = new Button { Text = t, Location = new Point(25, y), Size = new Size(400, 50), BackColor = c, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
                 b.FlatAppearance.BorderSize = 0; return b;
             }
 
             private void SendSetMode(uint m) => _device.Interface.Send(MavLinkCommands.CreateSetMode(255, 1, _device.SysId, 1, m));
             private void SendCmd(ushort c, float p1, float p2=0, float p3=0, float p4=0, float p5=0, float p6=0, float p7=0) 
                 => _device.Interface.Send(MavLinkCommands.CreateCommandLong(255, 1, _device.SysId, _device.CompId, c, p1, p2, p3, p4, p5, p6, p7));
+
+            private void RefreshGeofenceConfig()
+            {
+                _state.AddLog("REFRESHING FENCE CONFIG FROM DRONE...");
+                byte[] altReq = MavLinkCommands.CreateParamRequestRead(255, 1, (byte)BaseSysId, 1, "FENCE_ALT_MAX");
+                _device.Interface.Send(altReq);
+                byte[] radReq = MavLinkCommands.CreateParamRequestRead(255, 1, (byte)BaseSysId, 1, "FENCE_RADIUS");
+                _device.Interface.Send(radReq);
+            }
+
+            private void ApplyGeofenceConfig()
+            {
+                var result = MessageBox.Show(
+                    $"Confirm writing new Geofence configuration to Drone?\n\n" +
+                    $"- Fence Enabled: {(_chkGeoFence.Checked ? "YES" : "NO")}\n" +
+                    $"- Max Altitude: {_nudGeoAlt.Value} meters\n" +
+                    $"- Max Radius: {_nudGeoRadius.Value} meters",
+                    "Confirm Geofence Change",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    byte[] altPkt = MavLinkCommands.CreateParamSet(255, 1, (byte)BaseSysId, 1, "FENCE_ALT_MAX", (float)_nudGeoAlt.Value, 9);
+                    _device.Interface.Send(altPkt);
+
+                    byte[] radPkt = MavLinkCommands.CreateParamSet(255, 1, (byte)BaseSysId, 1, "FENCE_RADIUS", (float)_nudGeoRadius.Value, 9);
+                    _device.Interface.Send(radPkt);
+
+                    byte[] enableCmd = MavLinkCommands.CreateCommandLong(255, 1, (byte)BaseSysId, 1, 1001, _chkGeoFence.Checked ? 1 : 0);
+                    _device.Interface.Send(enableCmd);
+
+                    _state.AddLog("GEOFENCE CONFIG WRITTEN TO DRONE!");
+                }
+            }
         }
 
-        public class WaypointItem
-        {
-            public ushort Index { get; set; }
-            public byte CurrentWp { get; set; }
-            public byte CoordFrame { get; set; }
-            public ushort Command { get; set; }
-            public float Param1 { get; set; }
-            public float Param2 { get; set; }
-            public float Param3 { get; set; }
-            public float Param4 { get; set; }
-            public double Lat { get; set; }
-            public double Lon { get; set; }
-            public float Alt { get; set; }
-            public byte AutoContinue { get; set; }
-        }
+
 
     }
 }

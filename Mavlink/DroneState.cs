@@ -23,6 +23,8 @@ namespace MinimalGCS.Mavlink
         public int ResumeWp { get; set; }
         public int TotalWp { get; set; } = 1; // Default 1 to avoid div by zero
         public int Relay1 { get; set; } = -1; // -1 = unknown, 0 = LOW (Pump ON), 1 = HIGH (Pump OFF)
+        public float FenceAltMax { get; set; } = 30; // Default
+        public float FenceRadius { get; set; } = 100; // Default
         public DateTime LastHeartbeat { get; set; }
         public bool IsConnected => (DateTime.Now - LastHeartbeat).TotalSeconds < 10;
         
