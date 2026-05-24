@@ -18,6 +18,14 @@ namespace MinimalGCS
         private Label _lblSearching;
         private System.Windows.Forms.Timer _uiTicker;
         
+        // PRIMARY/SECONDARY GCS Relay
+        private Label _lblRelayStatus;
+        private CheckBox _chkRelayEnabled;
+        private volatile bool _relayActive = true;
+        private volatile int _relayTxCount = 0;
+        private volatile int _relayRxCount = 0;
+        private volatile bool _mpConnected = false;
+        
         // CENTRAL STATE MANAGER: One dictionary for all drones
         private ConcurrentDictionary<byte, DroneState> _drones = new ConcurrentDictionary<byte, DroneState>();
         private Dictionary<byte, AgriWorkPanel> _panels = new Dictionary<byte, AgriWorkPanel>();
@@ -39,10 +47,19 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "Agri-Drone Enterprise v1.5.0 - AGRI-TITAN GCS";
+            this.Text = "AGRI-TITAN GCS v1.5.0 — PRIMARY";
             this.Size = new Size(1340, 780);
             this.BackColor = Color.FromArgb(30, 30, 30);
             this.StartPosition = FormStartPosition.CenterScreen;
+
+            // --- STATUS BAR (Bottom) ---
+            var statusBar = new Panel { Dock = DockStyle.Bottom, Height = 32, BackColor = Color.FromArgb(25, 25, 25) };
+            var lblPrimary = new Label { Text = "■ PRIMARY GCS", AutoSize = true, Location = new Point(10, 7), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.FromArgb(40, 167, 69) };
+            _chkRelayEnabled = new CheckBox { Text = "Relay to Mission Planner (Secondary)", AutoSize = true, Location = new Point(160, 6), Font = new Font("Segoe UI", 8.5f), ForeColor = Color.White, Checked = true, BackColor = Color.Transparent };
+            _chkRelayEnabled.CheckedChanged += (s, e) => { _relayActive = _chkRelayEnabled.Checked; };
+            _lblRelayStatus = new Label { Text = "RELAY: Waiting...", AutoSize = true, Location = new Point(440, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
+            statusBar.Controls.AddRange(new Control[] { lblPrimary, _chkRelayEnabled, _lblRelayStatus });
+            this.Controls.Add(statusBar);
 
             var split = new SplitContainer
             {
@@ -147,7 +164,7 @@ namespace MinimalGCS
                     // 2Hz for SERVO_OUTPUT_RAW (36)
                     device.Interface.Send(MavLinkCommands.CreateSetMessageInterval(255, 1, device.SysId, 36, 500000));
 
-                    // --- AUTOMATIC GCS RELAY FOR MISSION PLANNER (UDP 14550 PUSH) ---
+                    // --- PRIMARY GCS RELAY TO MISSION PLANNER (SECONDARY) ---
                     if (device.Interface is SerialInterface)
                     {
                         try
@@ -155,7 +172,7 @@ namespace MinimalGCS
                             var udpRelay = new System.Net.Sockets.UdpClient();
                             var remoteEP = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
 
-                            // 1. Forward incoming UDP packets from Mission Planner to the physical Serial port
+                            // 1. Listen for Mission Planner commands on UDP 14551 -> forward to drone
                             Task.Run(() =>
                             {
                                 try
@@ -166,10 +183,12 @@ namespace MinimalGCS
                                         try
                                         {
                                             byte[] fromMP = udpRelay.Receive(ref remoteEP);
-                                            if (fromMP.Length > 0 && device.Interface.IsOpen)
+                                            if (fromMP.Length > 0 && device.Interface.IsOpen && _relayActive)
                                             {
                                                 device.Interface.Send(fromMP);
-                                                parser.Parse(fromMP); // Parse locally so our UI updates in real-time
+                                                parser.Parse(fromMP);
+                                                _relayRxCount++;
+                                                _mpConnected = true;
                                             }
                                         }
                                         catch { }
@@ -179,9 +198,10 @@ namespace MinimalGCS
                                 try { udpRelay.Close(); } catch { }
                             });
 
-                            // 2. Push telemetry data received from Serial to local UDP port 14550
+                            // 2. Forward drone telemetry to Mission Planner on UDP 14550
                             device.Interface.OnDataReceived += (data) =>
                             {
+                                if (!_relayActive) return;
                                 try
                                 {
                                     if (remoteEP != null && remoteEP.Address != System.Net.IPAddress.Any && remoteEP.Port != 0)
@@ -192,9 +212,12 @@ namespace MinimalGCS
                                     {
                                         udpRelay.Send(data, data.Length, new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 14550));
                                     }
+                                    _relayTxCount++;
                                 }
                                 catch { }
                             };
+
+                            state.AddLog("PRIMARY GCS: UDP relay to Mission Planner started (14550/14551)");
                         }
                         catch { }
                     }
@@ -314,6 +337,23 @@ namespace MinimalGCS
                 {
                     panel.SyncWithState(state);
                 }
+            }
+            // Update relay status bar
+            if (_relayActive && _relayTxCount > 0)
+            {
+                string mpStat = _mpConnected ? "CONNECTED" : "LISTENING";
+                _lblRelayStatus.Text = $"RELAY: {mpStat} | TX: {_relayTxCount} | RX: {_relayRxCount}";
+                _lblRelayStatus.ForeColor = _mpConnected ? Color.FromArgb(40, 167, 69) : Color.FromArgb(255, 193, 7);
+            }
+            else if (!_relayActive)
+            {
+                _lblRelayStatus.Text = "RELAY: DISABLED";
+                _lblRelayStatus.ForeColor = Color.FromArgb(220, 53, 69);
+            }
+            else
+            {
+                _lblRelayStatus.Text = "RELAY: Waiting for connection...";
+                _lblRelayStatus.ForeColor = Color.Gray;
             }
         } 
 
