@@ -28,6 +28,7 @@ namespace MinimalGCS
         private Button _btnActivate;
         private WebBrowser _previewMap;
         private Mission _currentSelectedMission;
+        private NumericUpDown _nudFarmHeight, _nudCruiseSpeed;
 
         public Mission SelectedMission { get; private set; }
 
@@ -133,7 +134,7 @@ namespace MinimalGCS
             pnlMiddle.Controls.Add(_dgvWaypoints);
 
             // Bottom stats & confirmation block
-            var pnlStats = new Panel { Dock = DockStyle.Bottom, Height = 185, BackColor = Color.FromArgb(24, 24, 24), Padding = new Padding(12), Margin = new Padding(0, 10, 0, 0) };
+            var pnlStats = new Panel { Dock = DockStyle.Bottom, Height = 285, BackColor = Color.FromArgb(24, 24, 24), Padding = new Padding(12), Margin = new Padding(0, 10, 0, 0) };
             
             _lblWpCount = new Label { Text = "Waypoints: --", Dock = DockStyle.Top, Height = 22, Font = new Font("Segoe UI", 9.5f), ForeColor = Color.LightGray };
             _lblDistance = new Label { Text = "Full Distance: -- km", Dock = DockStyle.Top, Height = 22, Font = new Font("Segoe UI", 9.5f), ForeColor = Color.LightGray };
@@ -142,6 +143,41 @@ namespace MinimalGCS
             pnlStats.Controls.Add(_lblEstTime);
             pnlStats.Controls.Add(_lblDistance);
             pnlStats.Controls.Add(_lblWpCount);
+
+            // 🚀 Alt & Speed adjustment panel
+            var pnlAdjust = new Panel { Dock = DockStyle.Top, Height = 95, BackColor = Color.FromArgb(32, 32, 32), Padding = new Padding(8), Margin = new Padding(0, 5, 0, 10) };
+            
+            var lblAdjTitle = new Label { Text = "🔧 ADJUST GRID FLYING VALUES (INSTANT)", Dock = DockStyle.Top, Height = 18, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.FromArgb(253, 126, 20) };
+            pnlAdjust.Controls.Add(lblAdjTitle);
+
+            // FlowPanel for inputs
+            var flpInputs = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(0, 6, 0, 0) };
+            
+            var lblHeight = new Label { Text = "Height (m):", Font = new Font("Segoe UI", 9), ForeColor = Color.LightGray, AutoSize = true, Margin = new Padding(0, 4, 4, 0) };
+            _nudFarmHeight = new NumericUpDown { Minimum = 1, Maximum = 50, DecimalPlaces = 1, Value = 6, Increment = 0.5m, Size = new Size(55, 23), BackColor = Color.FromArgb(45, 45, 45), ForeColor = Color.White, Font = new Font("Segoe UI", 9) };
+            
+            var lblSpeed = new Label { Text = "Speed (m/s):", Font = new Font("Segoe UI", 9), ForeColor = Color.LightGray, AutoSize = true, Margin = new Padding(10, 4, 4, 0) };
+            _nudCruiseSpeed = new NumericUpDown { Minimum = 1, Maximum = 20, DecimalPlaces = 1, Value = 5, Increment = 0.5m, Size = new Size(55, 23), BackColor = Color.FromArgb(45, 45, 45), ForeColor = Color.White, Font = new Font("Segoe UI", 9) };
+
+            var btnApplyAdj = new Button
+            {
+                Text = "⚡ APPLY TO ALL",
+                Size = new Size(115, 24),
+                BackColor = Color.FromArgb(253, 126, 20),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(12, 1, 0, 0)
+            };
+            btnApplyAdj.FlatAppearance.BorderSize = 0;
+            btnApplyAdj.Click += BtnApplyAdj_Click;
+
+            flpInputs.Controls.AddRange(new Control[] { lblHeight, _nudFarmHeight, lblSpeed, _nudCruiseSpeed, btnApplyAdj });
+            pnlAdjust.Controls.Add(flpInputs);
+            flpInputs.BringToFront();
+
+            pnlStats.Controls.Add(pnlAdjust);
 
             var spacer = new Panel { Dock = DockStyle.Bottom, Height = 8 };
 
@@ -328,26 +364,8 @@ namespace MinimalGCS
                 else if (cmd == "LAND" || cmd == "RTL") row.DefaultCellStyle.ForeColor = Color.FromArgb(220, 53, 69);
             }
 
-            // Stats computation
-            double fullDist = CalculateFullDistance(m.Waypoints);
-            double km = fullDist / 1000.0;
-            _lblWpCount.Text = $"Waypoints: {m.Waypoints.Count}";
-            _lblDistance.Text = $"Full Distance: {km:F2} km ({fullDist:F0} m)";
-            
-            // Cruise speed: 5m/s. Climb speed: 1.5m/s. Descent speed: 1.0m/s.
-            double cruiseTime = fullDist / 5.0;
-            double takeoffAlt = 5.0;
-            var takeoffWp = m.Waypoints.FirstOrDefault(w => w.Command == 22);
-            if (takeoffWp != null) takeoffAlt = takeoffWp.Alt;
-
-            double climbTime = takeoffAlt / 1.5;
-            double descentTime = takeoffAlt / 1.0;
-
-            double totalTimeSeconds = cruiseTime + climbTime + descentTime;
-            int mins = (int)(totalTimeSeconds / 60);
-            int secs = (int)(totalTimeSeconds % 60);
-            _lblEstTime.Text = $"Est. Flight Time: {mins} min {secs} sec (Takeoff ➔ Land)";
-            _btnActivate.Enabled = true;
+            // Consolidate stats computation via Pixhawk Simulator
+            UpdateMissionStats(m);
 
             // Render on map
             PreviewMission(m);
@@ -433,25 +451,8 @@ namespace MinimalGCS
                                     else if (cmd == "LAND" || cmd == "RTL") row.DefaultCellStyle.ForeColor = Color.FromArgb(220, 53, 69);
                                 }
 
-                                // Re-calculate stats
-                                double fullDist = CalculateFullDistance(_currentSelectedMission.Waypoints);
-                                double km = fullDist / 1000.0;
-                                _lblWpCount.Text = $"Waypoints: {_currentSelectedMission.Waypoints.Count}";
-                                _lblDistance.Text = $"Full Distance: {km:F2} km ({fullDist:F0} m)";
-                                
-                                // Cruise speed: 5m/s. Climb speed: 1.5m/s. Descent speed: 1.0m/s.
-                                double cruiseTime = fullDist / 5.0;
-                                double takeoffAlt = 5.0;
-                                var takeoffWp = _currentSelectedMission.Waypoints.FirstOrDefault(w => w.Command == 22);
-                                if (takeoffWp != null) takeoffAlt = takeoffWp.Alt;
-
-                                double climbTime = takeoffAlt / 1.5;
-                                double descentTime = takeoffAlt / 1.0;
-
-                                double totalTimeSeconds = cruiseTime + climbTime + descentTime;
-                                int mins = (int)(totalTimeSeconds / 60);
-                                int secs = (int)(totalTimeSeconds % 60);
-                                _lblEstTime.Text = $"Est. Flight Time: {mins} min {secs} sec (Takeoff ➔ Land)";
+                                // Re-calculate stats via Pixhawk Simulator
+                                UpdateMissionStats(_currentSelectedMission);
                             }
                         }
                     }
@@ -470,6 +471,138 @@ namespace MinimalGCS
             }
         }
 
+
+        private void UpdateMissionStats(Mission m)
+        {
+            if (m == null) return;
+
+            // Stats computation
+            double fullDist = CalculateFullDistance(m.Waypoints);
+            double km = fullDist / 1000.0;
+            _lblWpCount.Text = $"Waypoints: {m.Waypoints.Count}";
+            _lblDistance.Text = $"Full Distance: {km:F2} km ({fullDist:F0} m)";
+
+            // 1. Get Cruise Speed from the mission (via Command 178, fallback to 5.0)
+            double cruiseSpeed = 5.0;
+            var spdWp = m.Waypoints.FirstOrDefault(w => w.Command == 178);
+            if (spdWp != null && spdWp.Param2 > 0.5f) cruiseSpeed = spdWp.Param2;
+
+            // 2. Set current NumericUpDown values to show actual loaded values!
+            var gridWp = m.Waypoints.FirstOrDefault(w => w.Command == 16);
+            if (gridWp != null) _nudFarmHeight.Value = (decimal)gridWp.Alt;
+            _nudCruiseSpeed.Value = (decimal)cruiseSpeed;
+
+            // 3. Mathematical Pixhawk/ArduPilot Flight Time Estimation Model
+            double totalTimeSeconds = 0;
+
+            // A. Climb / Descent rates (standard ArduPilot limits)
+            double takeoffAlt = 6.0;
+            var tkWp = m.Waypoints.FirstOrDefault(w => w.Command == 22);
+            if (tkWp != null) takeoffAlt = tkWp.Alt;
+
+            double climbTime = takeoffAlt / 2.5; // ArduPilot climb speed limit: 2.5 m/s
+            double descentTime = takeoffAlt / 1.5; // ArduPilot descent speed limit: 1.5 m/s
+            totalTimeSeconds += climbTime + descentTime;
+
+            // B. Horizontal Traversal segments with Acceleration modeling
+            double accel = 2.0; // WPNAV_ACCEL: 2.0 m/s^2
+            var flightSegments = m.Waypoints.Where(w => (w.Command == 16 || w.Command == 22 || w.Command == 21) && w.Lat != 0 && w.Lon != 0).ToList();
+
+            for (int i = 1; i < flightSegments.Count; i++)
+            {
+                double dist = Haversine(flightSegments[i - 1].Lat, flightSegments[i - 1].Lon, flightSegments[i].Lat, flightSegments[i].Lon);
+
+                // Acceleration time to/from cruiseSpeed
+                double t_accel = cruiseSpeed / accel;
+                double d_accel = 0.5 * accel * t_accel * t_accel; // distance needed to accelerate to cruise speed
+
+                if (dist > 2 * d_accel)
+                {
+                    // Segment is long enough to fully accelerate to cruise speed, cruise, and decelerate
+                    double d_cruise = dist - (2 * d_accel);
+                    double t_cruise = d_cruise / cruiseSpeed;
+                    totalTimeSeconds += (2 * t_accel) + t_cruise;
+                }
+                else
+                {
+                    // Segment is short: triangular speed profile (cannot reach full cruise speed)
+                    double peakSpeed = Math.Sqrt(accel * dist);
+                    double t_peak = peakSpeed / accel;
+                    totalTimeSeconds += 2 * t_peak;
+                }
+
+                // C. Add turn slowdown delay (deceleration/corner turn penalty of 1.2s per waypoint corner)
+                if (i < flightSegments.Count - 1)
+                {
+                    totalTimeSeconds += 1.2;
+                }
+            }
+
+            int mins = (int)(totalTimeSeconds / 60);
+            int secs = (int)(totalTimeSeconds % 60);
+            _lblEstTime.Text = $"Est. Flight Time: {mins} min {secs} sec (Pixhawk WPNAV Simulator)";
+            _btnActivate.Enabled = true;
+        }
+
+        private void BtnApplyAdj_Click(object sender, EventArgs e)
+        {
+            if (_currentSelectedMission == null) return;
+
+            float newAlt = (float)_nudFarmHeight.Value;
+            float newSpeed = (float)_nudCruiseSpeed.Value;
+
+            // 1. Update all grid waypoints (command 16)
+            bool updatedAlt = false;
+            foreach (var wp in _currentSelectedMission.Waypoints)
+            {
+                if (wp.Command == 16)
+                {
+                    wp.Alt = newAlt;
+                    updatedAlt = true;
+                }
+            }
+
+            // 2. Manage Cruise Speed (Command 178 / change speed)
+            // Look for existing speed command (command 178)
+            var speedWp = _currentSelectedMission.Waypoints.FirstOrDefault(w => w.Command == 178);
+            if (speedWp != null)
+            {
+                speedWp.Param2 = newSpeed; // Update existing
+            }
+            else
+            {
+                // Ingress speed change command right after Takeoff (normally index 2)
+                int takeoffIdx = _currentSelectedMission.Waypoints.FindIndex(w => w.Command == 22);
+                int insertAt = takeoffIdx >= 0 ? takeoffIdx + 1 : 0;
+                
+                var newWp = new WaypointItem
+                {
+                    Command = 178, // MAV_CMD_DO_CHANGE_SPEED
+                    Param1 = 1.0f,  // Groundspeed type
+                    Param2 = newSpeed, // Speed value
+                    Param3 = -1.0f,
+                    Param4 = 0.0f,
+                    Lat = 0,
+                    Lon = 0,
+                    Alt = 0,
+                    AutoContinue = 1
+                };
+                
+                _currentSelectedMission.Waypoints.Insert(insertAt, newWp);
+            }
+
+            // 3. Re-index waypoints sequentially to ensure sequence is perfect
+            for (int i = 0; i < _currentSelectedMission.Waypoints.Count; i++)
+            {
+                _currentSelectedMission.Waypoints[i].Index = i;
+            }
+
+            // 4. Save and select to update UI
+            MissionManager.SaveMission(_currentSelectedMission);
+            SelectMission(_currentSelectedMission);
+
+            MessageBox.Show($"Mission updated successfully!\n- Grid Flying Alt: {newAlt:F1} meters\n- Grid Cruise Speed: {newSpeed:F1} m/s", "Mission Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
 
         private double CalculateFullDistance(List<WaypointItem> wps)
         {
@@ -515,7 +648,7 @@ namespace MinimalGCS
             179 => "SET HOME",
             93 => "DELAY",
             181 => param2 == 0 ? "PUMP: ON (SPRAY)" : "PUMP: OFF",
-            178 => "SERVO TRIGGER",
+            178 => "SPEED CHANGE",
             _ => $"CMD ({cmd})"
         };
     }

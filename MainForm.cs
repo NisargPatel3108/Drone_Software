@@ -514,6 +514,11 @@ namespace MinimalGCS
             private CheckBox _chkGeoFence;
             private float _geoHomeLat, _geoHomeLon;
             
+            private Label lblTitle, lblGeo, lblMaxAlt, lblRadius, lblSwipe, lblLang;
+            private TabPage tp1, tp2;
+            private ComboBox _cbLanguage;
+            private string _currentLang = "en";
+            
             private enum PanelState { IDLE, BUSY }
             private PanelState _pState = PanelState.IDLE;
 
@@ -569,44 +574,45 @@ namespace MinimalGCS
                 // Create TabControl docked to fill the AgriWorkPanel
                 var tc = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
                 
-                var tp1 = new TabPage("Mission Control") { BackColor = Color.White };
-                var tp2 = new TabPage("Advanced Settings") { BackColor = Color.White };
+                tp1 = new TabPage("Mission Control") { BackColor = Color.White };
+                tp2 = new TabPage("Advanced Settings") { BackColor = Color.White };
                 
                 tc.TabPages.Add(tp1);
                 tc.TabPages.Add(tp2);
                 this.Controls.Add(tc);
 
                 // --- TAB 1: MISSION CONTROL ---
-                var lblTitle = new Label { Text = $"DRONE #{_state.SysId}", Location = new Point(15, 10), Size = new Size(400, 25), Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.DarkGreen };
+                lblTitle = new Label { Text = $"DRONE #{_state.SysId}", Location = new Point(15, 10), Size = new Size(400, 25), Font = new Font("Segoe UI", 12, FontStyle.Bold), ForeColor = Color.DarkGreen };
                 _lblStatus = new Label { Text = "READY", Location = new Point(15, 35), Size = new Size(400, 30), Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Color.Blue };
                 _lblTelemetry = new Label { Text = "...", Location = new Point(15, 70), Size = new Size(400, 35), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
                 _lblGPS = new Label { Text = "Lat: 0.0000000  Lng: 0.0000000", Location = new Point(15, 105), Size = new Size(400, 20), Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.DarkSlateGray };
                 _lblMsg = new Label { Text = "Initializing...", Location = new Point(15, 125), Size = new Size(400, 20), Font = new Font("Segoe UI", 9, FontStyle.Italic), ForeColor = Color.DarkSlateGray };
 
-                _btnStart = CreateBtn("START MISSION", Color.FromArgb(40, 167, 69), 150);
+                // 🚀 Beautiful spacing & padding: 15px gap grid with standard height 44!
+                _btnStart = CreateBtn("START MISSION", Color.FromArgb(40, 167, 69), 145);
                 
                 // Side-by-side layout for PAUSE and RESUME
-                _btnPause = new Button { Text = "PAUSE", Location = new Point(25, 210), Size = new Size(195, 50), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 193, 7), ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnPause = new Button { Text = "PAUSE", Location = new Point(25, 204), Size = new Size(190, 44), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 193, 7), ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnPause.FlatAppearance.BorderSize = 0;
                 
-                _btnResume = new Button { Text = "RESUME", Location = new Point(230, 210), Size = new Size(195, 50), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(23, 162, 184), ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnResume = new Button { Text = "RESUME", Location = new Point(235, 204), Size = new Size(190, 44), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(23, 162, 184), ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnResume.FlatAppearance.BorderSize = 0;
 
-                _btnRTL = CreateBtn("RETURN HOME (RTL)", Color.FromArgb(108, 117, 125), 270);
+                _btnRTL = CreateBtn("RETURN HOME (RTL)", Color.FromArgb(108, 117, 125), 263);
                 
                 // Side-by-side layout for LAND NOW and PUMP CONTROL
-                _btnLand = new Button { Text = "LAND NOW", Location = new Point(25, 330), Size = new Size(195, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 69, 0), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnLand = new Button { Text = "LAND NOW", Location = new Point(25, 322), Size = new Size(190, 44), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(255, 69, 0), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnLand.FlatAppearance.BorderSize = 0;
 
-                _btnPump = new Button { Text = "PUMP: OFF", Location = new Point(230, 330), Size = new Size(195, 48), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                _btnPump = new Button { Text = "PUMP: OFF", Location = new Point(235, 322), Size = new Size(190, 44), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
                 _btnPump.FlatAppearance.BorderSize = 0;
 
-                _btnUploadWp = CreateBtn("MISSION MANAGER", Color.FromArgb(0, 123, 255), 390);
+                _btnUploadWp = CreateBtn("MISSION MANAGER", Color.FromArgb(0, 123, 255), 381);
 
                 // --- SWIPE TO DISARM ---
-                var pnlSwipe = new Panel { Location = new Point(25, 450), Size = new Size(400, 56), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
-                var lblSwipe = new Label { Text = ">>> SWIPE TO DISARM >>>", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
-                var pnlHandle = new Panel { Location = new Point(2, 2), Size = new Size(80, 52), BackColor = Color.White, Cursor = Cursors.Hand };
+                var pnlSwipe = new Panel { Location = new Point(25, 440), Size = new Size(400, 50), BackColor = Color.FromArgb(220, 53, 69), BorderStyle = BorderStyle.None };
+                lblSwipe = new Label { Text = ">>> SWIPE TO DISARM >>>", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
+                var pnlHandle = new Panel { Location = new Point(2, 2), Size = new Size(80, 46), BackColor = Color.White, Cursor = Cursors.Hand };
                 pnlSwipe.Controls.Add(pnlHandle);
                 pnlSwipe.Controls.Add(lblSwipe);
                 lblSwipe.SendToBack();
@@ -663,18 +669,18 @@ namespace MinimalGCS
                 };
 
                 // --- WARNING LABEL ---
-                _lblWarning = new Label { Text = "", Location = new Point(15, 515), Size = new Size(420, 20), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.Red, Visible = false };
+                _lblWarning = new Label { Text = "", Location = new Point(15, 505), Size = new Size(420, 20), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.Red, Visible = false };
 
                 tp1.Controls.AddRange(new Control[] { lblTitle, _lblStatus, _lblTelemetry, _lblGPS, _lblMsg, _btnStart, _btnPause, _btnResume, _btnRTL, _btnLand, _btnPump, _btnUploadWp, pnlSwipe, _lblWarning });
 
-                // --- TAB 2: ADVANCED SETTINGS (GEOFENCE) ---
-                var lblGeo = new Label { Text = "DRONE GEOFENCE CONFIG", Location = new Point(15, 15), Size = new Size(400, 20), Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = Color.DarkSlateGray };
+                // --- TAB 2: ADVANCED SETTINGS (GEOFENCE & LANGUAGE) ---
+                lblGeo = new Label { Text = "DRONE GEOFENCE CONFIG", Location = new Point(15, 15), Size = new Size(400, 20), Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = Color.DarkSlateGray };
                 _chkGeoFence = new CheckBox { Text = "Enable Geo-Fence Failsafe", Location = new Point(20, 45), Size = new Size(400, 22), Font = new Font("Segoe UI", 9.5f), Checked = true };
                 
-                var lblMaxAlt = new Label { Text = "Max Altitude (m):", Location = new Point(20, 85), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
+                lblMaxAlt = new Label { Text = "Max Altitude (m):", Location = new Point(20, 85), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
                 _nudGeoAlt = new NumericUpDown { Location = new Point(160, 83), Size = new Size(80, 25), Minimum = 5, Maximum = 200, Value = 6, Font = new Font("Segoe UI", 9.5f) };
                 
-                var lblRadius = new Label { Text = "Max Radius (m):", Location = new Point(20, 125), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
+                lblRadius = new Label { Text = "Max Radius (m):", Location = new Point(20, 125), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
                 _nudGeoRadius = new NumericUpDown { Location = new Point(160, 123), Size = new Size(80, 25), Minimum = 10, Maximum = 2000, Value = 200, Font = new Font("Segoe UI", 9.5f) };
 
                 _btnRefreshFence = new Button { Text = "REFRESH CONFIG", Location = new Point(25, 175), Size = new Size(195, 45), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(108, 117, 125), ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold), Cursor = Cursors.Hand };
@@ -686,16 +692,38 @@ namespace MinimalGCS
                 _btnRefreshFence.Click += (s, e) => RefreshGeofenceConfig();
                 _btnApplyFence.Click += (s, e) => ApplyGeofenceConfig();
 
-                tp2.Controls.AddRange(new Control[] { lblGeo, _chkGeoFence, lblMaxAlt, _nudGeoAlt, lblRadius, _nudGeoRadius, _btnRefreshFence, _btnApplyFence });
+                // 🌎 LANGUAGE SELECTOR
+                lblLang = new Label { Text = "Select Language:", Location = new Point(20, 245), Size = new Size(130, 20), Font = new Font("Segoe UI", 9.5f) };
+                _cbLanguage = new ComboBox { Location = new Point(160, 243), Size = new Size(150, 25), Font = new Font("Segoe UI", 9.5f), DropDownStyle = ComboBoxStyle.DropDownList };
+                _cbLanguage.Items.AddRange(new object[] { "English", "ગુજરાતી" });
+                _cbLanguage.SelectedIndex = 0;
+                
+                _cbLanguage.SelectedIndexChanged += (s, e) =>
+                {
+                    _currentLang = _cbLanguage.SelectedIndex == 1 ? "gu" : "en";
+                    UpdateLanguageText();
+                };
+
+                tp2.Controls.AddRange(new Control[] { lblGeo, _chkGeoFence, lblMaxAlt, _nudGeoAlt, lblRadius, _nudGeoRadius, _btnRefreshFence, _btnApplyFence, lblLang, _cbLanguage });
             }
 
             public void SyncWithState(DroneState state)
             {
                 _lblMsg.Text = state.LastMessage;
-                string pumpStr = state.Relay1 == 0 ? "ON" : "OFF";
-                _lblTelemetry.Text = $"ALT: {state.Alt:F1}m (Max: {state.MaxAlt:F1}m) | BATT: {state.BatteryPercent}% ({state.Voltage:F1}V)\nMODE: {_main.GetModeName(state.Mode)} | PUMP: {pumpStr} | SPD: {state.GroundSpeed:F1}m/s";
+                string pumpStr = state.Relay1 == 0 ? (_currentLang == "gu" ? "ચાલુ" : "ON") : (_currentLang == "gu" ? "બંધ" : "OFF");
+                
+                string altText = _currentLang == "gu" ? "ઊંચાઈ" : "ALT";
+                string battText = _currentLang == "gu" ? "બેટરી" : "BATT";
+                string modeText = _currentLang == "gu" ? "મોડ" : "MODE";
+                string spdText = _currentLang == "gu" ? "ઝડપ" : "SPD";
+                string pumpText = _currentLang == "gu" ? "પંપ" : "PUMP";
+                string gpsText = _currentLang == "gu" ? "જીપીએસ" : "GPS";
+                string satText = _currentLang == "gu" ? "સેટેલાઇટ" : "Sats";
+                
+                _lblTelemetry.Text = $"{altText}: {state.Alt:F1}m (Max: {state.MaxAlt:F1}m) | {battText}: {state.BatteryPercent}% ({state.Voltage:F1}V)\n{modeText}: {(_currentLang == "gu" ? GetModeNameGujarati(state.Mode) : _main.GetModeName(state.Mode))} | {pumpText}: {pumpStr} | {spdText}: {state.GroundSpeed:F1}m/s";
                 _lblTelemetry.ForeColor = state.IsArmed ? Color.DarkRed : Color.Black;
-                _lblGPS.Text = $"GPS: {_main.GetGpsStatusName(state.GpsFixType)} (Sats: {state.SatellitesCount} | HDOP: {state.Hdop:F1}) | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
+                
+                _lblGPS.Text = $"{gpsText}: {(_currentLang == "gu" ? GetGpsStatusNameGujarati(state.GpsFixType) : _main.GetGpsStatusName(state.GpsFixType))} ({satText}: {state.SatellitesCount} | HDOP: {state.Hdop:F1}) | Lat: {state.Lat:F7} Lng: {state.Lon:F7}";
                 
                 // Track dynamic telemetry on map
                 if (state.Lat != 0.0 && state.Lon != 0.0)
@@ -713,19 +741,19 @@ namespace MinimalGCS
                         float maxRadius = (float)_nudGeoRadius.Value;
                         float distFromHome = HaversineDist(_geoHomeLat, _geoHomeLon, (float)state.Lat, (float)state.Lon);
 
-                        if (state.Alt > maxAlt)
+                        if (state.Alt > maxAlt + 1.0f) // 1-meter safety buffer
                         {
-                            _lblWarning.Text = $"GEOFENCE: ALT {state.Alt:F0}m > {maxAlt:F0}m! AUTO-RTL";
+                            _lblWarning.Text = _currentLang == "gu" ? $"જીઓફેન્સ ભંગ: ઊંચાઈ {state.Alt:F1}m > {maxAlt + 1.0f:F1}m! ઓટો-RTL" : $"GEOFENCE: ALT {state.Alt:F1}m > {maxAlt + 1.0f:F1}m! AUTO-RTL";
                             _lblWarning.Visible = true;
                             SendSetMode(6); // RTL
-                            state.AddLog($"GEOFENCE BREACH: Alt {state.Alt:F1}m exceeded {maxAlt}m limit");
+                            state.AddLog($"GEOFENCE BREACH: Alt {state.Alt:F1}m exceeded {maxAlt + 1.0f}m limit");
                         }
-                        else if (distFromHome > maxRadius)
+                        else if (distFromHome > maxRadius + 1.0f) // 1-meter safety buffer
                         {
-                            _lblWarning.Text = $"GEOFENCE: DIST {distFromHome:F0}m > {maxRadius:F0}m! AUTO-RTL";
+                            _lblWarning.Text = _currentLang == "gu" ? $"જીઓફેન્સ ભંગ: અંતર {distFromHome:F1}m > {maxRadius + 1.0f:F1}m! ઓટો-RTL" : $"GEOFENCE: DIST {distFromHome:F1}m > {maxRadius + 1.0f:F1}m! AUTO-RTL";
                             _lblWarning.Visible = true;
                             SendSetMode(6); // RTL
-                            state.AddLog($"GEOFENCE BREACH: Distance {distFromHome:F0}m exceeded {maxRadius}m radius");
+                            state.AddLog($"GEOFENCE BREACH: Distance {distFromHome:F1}m exceeded {maxRadius + 1.0f}m radius");
                         }
                         else
                         {
@@ -766,26 +794,26 @@ namespace MinimalGCS
                 }
 
                 // Sync Pump button UI state
-                _btnPump.Text = state.Relay1 == 0 ? "PUMP: ON (AUTO)" : "PUMP: OFF";
+                _btnPump.Text = state.Relay1 == 0 ? (_currentLang == "gu" ? "પંપ: ચાલુ (ઓટો)" : "PUMP: ON (AUTO)") : (_currentLang == "gu" ? "પંપ: બંધ" : "PUMP: OFF");
                 _btnPump.BackColor = state.Relay1 == 0 ? Color.FromArgb(40, 167, 69) : Color.FromArgb(108, 117, 125);
                 
-                if (!state.IsConnected) { _lblStatus.Text = "LOST CONNECTION"; _lblStatus.ForeColor = Color.Red; return; }
+                if (!state.IsConnected) { _lblStatus.Text = _currentLang == "gu" ? "જોડાણ તૂટી ગયું" : "LOST CONNECTION"; _lblStatus.ForeColor = Color.Red; return; }
                 
                 if (_pState == PanelState.IDLE)
                 {
-                    if (state.Mode == 3) { _lblStatus.Text = "MISSION ACTIVE"; _lblStatus.ForeColor = Color.Green; }
-                    else if (state.Mode == 5 || state.Mode == 16) { _lblStatus.Text = "MISSION PAUSED"; _lblStatus.ForeColor = Color.Orange; }
-                    else { _lblStatus.Text = "READY"; _lblStatus.ForeColor = Color.Blue; }
+                    if (state.Mode == 3) { _lblStatus.Text = _currentLang == "gu" ? "મિશન સક્રિય છે" : "MISSION ACTIVE"; _lblStatus.ForeColor = Color.Green; }
+                    else if (state.Mode == 5 || state.Mode == 16) { _lblStatus.Text = _currentLang == "gu" ? "મિશન અટકાવેલ છે" : "MISSION PAUSED"; _lblStatus.ForeColor = Color.Orange; }
+                    else { _lblStatus.Text = _currentLang == "gu" ? "તૈયાર" : "READY"; _lblStatus.ForeColor = Color.Blue; }
                     
                     if (!state.IsArmed)
                     {
-                        _btnStart.Text = "START MISSION";
+                        _btnStart.Text = _currentLang == "gu" ? "મિશન શરૂ કરો" : "START MISSION";
                         _btnStart.BackColor = Color.FromArgb(40, 167, 69);
                         _btnStart.Visible = true;
                     }
                     else if (state.Mode != 3)
                     {
-                        _btnStart.Text = "RESUME MISSION";
+                        _btnStart.Text = _currentLang == "gu" ? "મિશન ફરી શરૂ કરો" : "RESUME MISSION";
                         _btnStart.BackColor = Color.FromArgb(0, 123, 255);
                         _btnStart.Visible = true;
                     }
@@ -796,7 +824,7 @@ namespace MinimalGCS
                 _btnResume.Visible = false;
 
                 if (!state.IsArmed && _pState == PanelState.IDLE) 
-                { _lblStatus.Text = "READY"; _lblStatus.ForeColor = Color.Blue; }
+                { _lblStatus.Text = _currentLang == "gu" ? "તૈયાર" : "READY"; _lblStatus.ForeColor = Color.Blue; }
             }
 
             private float HaversineDist(float lat1, float lon1, float lat2, float lon2)
@@ -1038,6 +1066,81 @@ namespace MinimalGCS
                     _device.Interface.Send(enableCmd);
 
                     _state.AddLog("GEOFENCE CONFIG WRITTEN TO DRONE!");
+                }
+            }
+
+            private void UpdateLanguageText()
+            {
+                if (_currentLang == "gu")
+                {
+                    tp1.Text = "મિશન કંટ્રોલ";
+                    tp2.Text = "ઉન્નત સેટિંગ્સ";
+                    
+                    lblTitle.Text = $"ડ્રોન #{_state.SysId}";
+                    lblGeo.Text = "ડ્રોન જીઓફેન્સ ગોઠવણી";
+                    _chkGeoFence.Text = "જીઓફેન્સ ફેલસેફ સક્ષમ કરો";
+                    lblMaxAlt.Text = "મહત્તમ ઊંચાઈ (મીટર):";
+                    lblRadius.Text = "મહત્તમ ત્રિજ્યા (મીટર):";
+                    lblLang.Text = "ભાષા પસંદ કરો:";
+                    
+                    _btnRefreshFence.Text = "ગોઠવણી તાજી કરો";
+                    _btnApplyFence.Text = "ગોઠવણી લાગુ કરો";
+                    
+                    _btnRTL.Text = "ઘરે પાછા ફરો (RTL)";
+                    _btnLand.Text = "અત્યારે લેન્ડ કરો";
+                    _btnUploadWp.Text = "મિશન મેનેજર";
+                    lblSwipe.Text = ">>> મોટર્સ બંધ કરવા સ્વાઇપ કરો >>>";
+                }
+                else
+                {
+                    tp1.Text = "Mission Control";
+                    tp2.Text = "Advanced Settings";
+                    
+                    lblTitle.Text = $"DRONE #{_state.SysId}";
+                    lblGeo.Text = "DRONE GEOFENCE CONFIG";
+                    _chkGeoFence.Text = "Enable Geo-Fence Failsafe";
+                    lblMaxAlt.Text = "Max Altitude (m):";
+                    lblRadius.Text = "Max Radius (m):";
+                    lblLang.Text = "Select Language:";
+                    
+                    _btnRefreshFence.Text = "REFRESH CONFIG";
+                    _btnApplyFence.Text = "APPLY CONFIG";
+                    
+                    _btnRTL.Text = "RETURN HOME (RTL)";
+                    _btnLand.Text = "LAND NOW";
+                    _btnUploadWp.Text = "MISSION MANAGER";
+                    lblSwipe.Text = ">>> SWIPE TO DISARM >>>";
+                }
+            }
+
+            private string GetModeNameGujarati(uint mode)
+            {
+                switch (mode)
+                {
+                    case 0: return "STABILIZE (સ્થિર)";
+                    case 2: return "ALT HOLD (ઊંચાઈ જાળવો)";
+                    case 3: return "AUTO (ઓટો)";
+                    case 4: return "GUIDED (માર્ગદર્શિત)";
+                    case 5: return "LOITER (લોઇટર)";
+                    case 6: return "RTL (ઘરે પાછા ફરો)";
+                    case 9: return "LAND (લેન્ડ કરો)";
+                    case 16: return "POS HOLD (સ્થાન જાળવો)";
+                    default: return "UNKNOWN (અજ્ઞાત)";
+                }
+            }
+
+            private string GetGpsStatusNameGujarati(int fixType)
+            {
+                switch (fixType)
+                {
+                    case 0:
+                    case 1: return "કોઈ ફિક્સ નથી";
+                    case 2: return "2D ફિક્સ";
+                    case 3: return "3D ફિક્સ";
+                    case 4: return "DGPS ફિક્સ";
+                    case 5: return "RTK ફ્લોટ";
+                    case 6: return "RTK ફિક્સ";
+                    default: return "અજ્ઞાત";
                 }
             }
         }
