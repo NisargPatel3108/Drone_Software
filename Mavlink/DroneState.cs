@@ -14,6 +14,7 @@ namespace MinimalGCS.Mavlink
         public double Lat { get; set; }
         public double Lon { get; set; }
         public float Heading { get; set; }
+        public float GroundSpeed { get; set; }
         public float Alt { get; set; }
         public float MaxAlt { get; set; }
         public float Voltage { get; set; }
