@@ -1,4 +1,4 @@
-const CACHE_NAME = 'agri-titan-v2.0.0';
+const CACHE_NAME = 'agri-titan-v2.0.1';
 const ASSETS = [
   './',
   './index.html',
