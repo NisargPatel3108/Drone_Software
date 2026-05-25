@@ -5,12 +5,12 @@ let relayStatusTimer = null;
 let currentWsUrl = "";
 let lastGcsState = false;
 let passcode = localStorage.getItem('agri_titan_passcode') || "";
-// Default server URL behavior:
-// - If the UI is hosted *together* with the relay (recommended), leave this empty to use same-origin `/ws`.
-// - If the UI is hosted as static-only (e.g. Netlify), set a full relay URL in Server Settings (or keep the legacy Render default).
-const legacyCloudRelay = "wss://agri-titan-relay.onrender.com";
-const isStaticWebHost = window.location.hostname.includes("netlify.app") || window.location.hostname.includes("github.io");
-const inferredDefaultRelay = isStaticWebHost ? legacyCloudRelay : "";
+let userRequestedLogout = false;
+let reconnectDelayMs = 2000;
+const legacyCloudRelay = "wss://agri-titan-relay.onrender.com/ws";
+const isHostedWithRelay = window.location.protocol !== "file:" &&
+  !window.location.hostname.includes("netlify.app") &&
+  !window.location.hostname.includes("github.io");
 let customServerUrl = getInitialServerUrl();
 let isArmedGlobal = false;
 let droneMarker = null;
@@ -35,6 +35,8 @@ const passcodeInput = document.getElementById('passcode-input');
 const authBtn = document.getElementById('auth-btn');
 const authError = document.getElementById('auth-error');
 const logoutBtn = document.getElementById('logout-btn');
+const overlayReconnectBtn = document.getElementById('overlay-reconnect-btn');
+const overlayLogoutBtn = document.getElementById('overlay-logout-btn');
 
 // Server configuration DOM Elements
 const toggleSettingsBtn = document.getElementById('toggle-settings-btn');
@@ -78,33 +80,33 @@ const elMapProgressBar = document.getElementById('map-progress-bar');
 const elMapProgressDetail = document.getElementById('map-progress-detail');
 
 // 1. INITIALIZATION & AUTHENTICATION
-if (passcode) {
-  showAppScreen();
-}
+initAuthUi();
 
-// Pre-fill Server URL field if available in local cache
-if (toggleSettingsBtn && settingsPanel) {
-  serverUrlInput.value = customServerUrl;
-  
-  toggleSettingsBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    const isActive = settingsPanel.classList.toggle('active');
-    toggleArrow.textContent = isActive ? "▲" : "▼";
+function initAuthUi() {
+  if (serverUrlInput) serverUrlInput.value = customServerUrl;
+
+  if (toggleSettingsBtn && settingsPanel) {
+    toggleSettingsBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const isActive = settingsPanel.classList.toggle('active');
+      toggleArrow.textContent = isActive ? "▲" : "▼";
+    });
+  }
+
+  authBtn.addEventListener('click', handleAuthSubmit);
+  passcodeInput.addEventListener('keypress', (event) => {
+    if (event.key === 'Enter') handleAuthSubmit();
   });
+  logoutBtn.addEventListener('click', logout);
+  if (overlayLogoutBtn) overlayLogoutBtn.addEventListener('click', logout);
+  if (overlayReconnectBtn) overlayReconnectBtn.addEventListener('click', reconnectNow);
+
+  if (passcode) {
+    showAppScreen();
+  } else {
+    showAuthScreen();
+  }
 }
-
-authBtn.addEventListener('click', handleAuthSubmit);
-passcodeInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') handleAuthSubmit();
-});
-
-logoutBtn.addEventListener('click', () => {
-  localStorage.removeItem('agri_titan_passcode');
-  passcode = "";
-  if (socket) socket.close();
-  authScreen.classList.add('active');
-  appScreen.classList.remove('active');
-});
 
 function handleAuthSubmit() {
   const value = passcodeInput.value.trim();
@@ -112,27 +114,34 @@ function handleAuthSubmit() {
     authError.textContent = "PLEASE ENTER A PASSCODE";
     return;
   }
+
   passcode = value;
-  
-  // Save custom server URL if configured
-  if (serverUrlInput) {
-    customServerUrl = serverUrlInput.value.trim();
-    localStorage.setItem('agri_titan_server_url', customServerUrl);
-  }
-  
+  customServerUrl = normalizeRelayUrl(serverUrlInput ? serverUrlInput.value : "");
+  localStorage.setItem('agri_titan_passcode', passcode);
+  localStorage.setItem('agri_titan_server_url', customServerUrl);
+  authError.textContent = "";
   showAppScreen();
+}
+
+function showAuthScreen() {
+  disconnectRelay();
+  authScreen.classList.add('active');
+  appScreen.classList.remove('active');
+  if (serverUrlInput) serverUrlInput.value = getInitialServerUrl();
 }
 
 function showAppScreen() {
   authScreen.classList.remove('active');
   appScreen.classList.add('active');
-  localStorage.setItem('agri_titan_passcode', passcode);
-  
-  // Initialize Leaflet Map
   initMap();
-  
-  // Establish WebSocket Connection
-  connectWebSocket();
+  reconnectNow();
+}
+
+function logout() {
+  userRequestedLogout = true;
+  localStorage.removeItem('agri_titan_passcode');
+  passcode = "";
+  showAuthScreen();
 }
 
 // 2. LEAFLET MAP SERVICE
@@ -322,20 +331,16 @@ function updateDroneLocationOnMap(lat, lon, heading) {
 // 3. WEBSOCKET CONTROLLER
 function getInitialServerUrl() {
   const savedUrl = (localStorage.getItem('agri_titan_server_url') || "").trim();
-
-  if (isStaticWebHost) {
-    localStorage.setItem('agri_titan_server_url', legacyCloudRelay);
-    return legacyCloudRelay;
-  }
-
-  return savedUrl || inferredDefaultRelay;
+  if (savedUrl) return normalizeRelayUrl(savedUrl);
+  return isHostedWithRelay ? "" : legacyCloudRelay;
 }
 
 function normalizeRelayUrl(inputUrl) {
   let wsUrl = (inputUrl || "").trim();
 
   if (!wsUrl) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (!isHostedWithRelay) return legacyCloudRelay;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     wsUrl = `${protocol}//${window.location.host}/ws`;
   }
 
@@ -354,29 +359,53 @@ function getRelayStatusUrl(wsUrl) {
   return wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://').replace(/\/ws$/, '/status');
 }
 
-function connectWebSocket() {
+function reconnectNow() {
+  userRequestedLogout = false;
+  reconnectDelayMs = 2000;
+  disconnectRelay({ keepPolling: false });
+  connectRelay();
+}
+
+function disconnectRelay(options = {}) {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  if (!options.keepPolling) stopRelayStatusPolling();
+  if (socket) {
+    const closingSocket = socket;
+    socket = null;
+    try {
+      closingSocket.onclose = null;
+      closingSocket.close();
+    } catch { }
+  }
+  indServer.classList.remove('online');
+  handleGcsStatus(false, socket ? "Relay reconnecting..." : "Relay disconnected");
+}
 
+function connectRelay() {
+  if (!passcode || userRequestedLogout) return;
   customServerUrl = getInitialServerUrl();
   if (serverUrlInput) serverUrlInput.value = customServerUrl;
 
   const wsUrl = normalizeRelayUrl(customServerUrl);
   currentWsUrl = wsUrl;
+  localStorage.setItem('agri_titan_server_url', wsUrl);
+  updateRelayDebug(`Connecting: ${wsUrl}`);
+  showConnectionOverlay("CONNECTING TO RELAY", `Opening WebSocket to <b>${wsUrl}</b>`);
   fetchRelayStatus();
   startRelayStatusPolling();
-  
+
   console.log(`Connecting to WebSocket: ${wsUrl}`);
   socket = new WebSocket(wsUrl);
-  
+
   socket.onopen = () => {
     console.log('Connected to server!');
+    reconnectDelayMs = 2000;
     indServer.classList.add('online');
     updateRelayDebug(`WebSocket connected: ${wsUrl}`);
-    
-    // Register as mobile client
+
     socket.send(JSON.stringify({
       type: 'register',
       client: 'mobile',
@@ -385,15 +414,16 @@ function connectWebSocket() {
 
     fetchRelayStatus();
   };
-  
+
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      
+
       if (data.type === 'gcs_status') {
         handleGcsStatus(data.connected);
       }
       else if (data.type === 'telemetry') {
+        handleGcsStatus(true);
         handleTelemetryUpdate(data);
       }
       else if (data.type === 'missions_list') {
@@ -401,31 +431,25 @@ function connectWebSocket() {
       }
       else if (data.type === 'error') {
         authError.textContent = data.message.toUpperCase();
-        localStorage.removeItem('agri_titan_passcode');
-        authScreen.classList.add('active');
-        appScreen.classList.remove('active');
-        socket.close();
+        logout();
       }
     } catch (err) {
       console.error("Error reading socket payload: ", err);
     }
   };
-  
+
+  socket.onerror = () => {
+    updateRelayDebug(`WebSocket error: ${wsUrl}`);
+  };
+
   socket.onclose = () => {
+    if (userRequestedLogout || !passcode) return;
     console.log('Socket disconnected. Reconnecting in 3s...');
     indServer.classList.remove('online');
-    updateRelayDebug(`WebSocket reconnecting: ${wsUrl}`);
-    
-    // Update warning overlay for Server Offline state
-    const warningText = document.querySelector('#connection-warning p');
-    const warningTitle = document.querySelector('#connection-warning h2');
-    if (warningTitle) warningTitle.textContent = "RELAY SERVER OFFLINE";
-    if (warningText) {
-      warningText.innerHTML = "Cannot connect to your Render cloud server.<br><br>1. Verify your Render web service status is green and <b>Live</b>.<br>2. Verify your Server URL in <b>⚙ Server Settings</b> is correct.";
-    }
-    
-    handleGcsStatus(false);
-    reconnectTimer = setTimeout(connectWebSocket, 3000);
+    updateRelayDebug(`WebSocket reconnecting in ${Math.round(reconnectDelayMs / 1000)}s: ${wsUrl}`);
+    handleGcsStatus(false, `Relay server disconnected. Reconnecting in ${Math.round(reconnectDelayMs / 1000)}s...`);
+    reconnectTimer = setTimeout(connectRelay, reconnectDelayMs);
+    reconnectDelayMs = Math.min(reconnectDelayMs + 1000, 8000);
   };
 }
 
@@ -441,6 +465,7 @@ async function fetchRelayStatus() {
 
     const status = await response.json();
     updateRelayDebug(`Relay OK | GCS ${status.gcsConnected ? 'ONLINE' : 'OFFLINE'} | Mobile ${status.activeMobileCount || 0}`);
+    indServer.classList.add('online');
     if (typeof status.gcsConnected === 'boolean') {
       handleGcsStatus(status.gcsConnected);
     }
@@ -454,9 +479,17 @@ function updateRelayDebug(message) {
   if (relayDebugLine) relayDebugLine.textContent = message;
 }
 
+function showConnectionOverlay(title, message) {
+  connectionWarning.classList.add('active');
+  const warningTitle = document.querySelector('#connection-warning .overlay-title');
+  const warningText = document.querySelector('#connection-warning .overlay-msg');
+  if (warningTitle) warningTitle.textContent = title;
+  if (warningText) warningText.innerHTML = message;
+}
+
 function startRelayStatusPolling() {
   stopRelayStatusPolling();
-  relayStatusTimer = setInterval(fetchRelayStatus, 2500);
+  relayStatusTimer = setInterval(fetchRelayStatus, 2000);
 }
 
 function stopRelayStatusPolling() {
@@ -466,7 +499,7 @@ function stopRelayStatusPolling() {
   }
 }
 
-function handleGcsStatus(connected) {
+function handleGcsStatus(connected, message) {
   lastGcsState = connected;
   if (connected) {
     indGcs.classList.remove('offline');
@@ -482,22 +515,13 @@ function handleGcsStatus(connected) {
     indGcs.classList.add('offline');
     indGcs.classList.remove('online');
     indGcs.innerHTML = '<span class="pill-dot"></span><span>GCS</span>';
-    connectionWarning.classList.add('active');
-    
+
     if (socket && socket.readyState === WebSocket.OPEN) {
-      const warningText = document.querySelector('#connection-warning .overlay-msg');
-      const warningTitle = document.querySelector('#connection-warning .overlay-title');
-      if (warningTitle) warningTitle.textContent = "AWAITING LAPTOP GCS LINK";
-      if (warningText) {
-        warningText.innerHTML = `Connected to relay server! Waiting for laptop GCS.<br><br>1. Open <b>relay_config.txt</b> in your GCS folder.<br>2. Enter: <b>${currentWsUrl || normalizeRelayUrl(customServerUrl)}</b><br>3. Run Agri-Titan GCS on your laptop.`;
-      }
+      showConnectionOverlay("AWAITING LAPTOP GCS LINK", message || `Connected to relay server. Waiting for desktop GCS.<br><br>Desktop <b>relay_config.txt</b> must be:<br><b>${currentWsUrl || normalizeRelayUrl(customServerUrl)}</b>`);
     } else {
-      const warningText = document.querySelector('#connection-warning .overlay-msg');
-      const warningTitle = document.querySelector('#connection-warning .overlay-title');
-      if (warningTitle) warningTitle.textContent = "RELAY SERVER OFFLINE";
-      if (warningText) warningText.innerHTML = "Cannot connect to your Render cloud server.<br><br>Check your Server URL in ⚙ settings.";
+      showConnectionOverlay("RELAY SERVER OFFLINE", message || `Cannot connect to Render relay.<br><br>Using:<br><b>${currentWsUrl || normalizeRelayUrl(customServerUrl)}</b>`);
     }
-    
+
     resetTelemetryDisplay();
     enableControlInputs(false);
   }

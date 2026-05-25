@@ -75,7 +75,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "AGRI-TITAN GCS v1.7.0 — PRIMARY";
+            this.Text = "AGRI-TITAN GCS v1.7.2 — PRIMARY";
             this.Size = new Size(1340, 780);
             this.BackColor = Color.FromArgb(30, 30, 30);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -83,10 +83,10 @@ namespace MinimalGCS
             // --- STATUS BAR (Bottom) ---
             var statusBar = new Panel { Dock = DockStyle.Bottom, Height = 32, BackColor = Color.FromArgb(25, 25, 25) };
             var lblPrimary = new Label { Text = "■ PRIMARY GCS", AutoSize = true, Location = new Point(10, 7), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.FromArgb(40, 167, 69) };
-            _chkRelayEnabled = new CheckBox { Text = "Relay to Mission Planner (Secondary)", AutoSize = true, Location = new Point(160, 6), Font = new Font("Segoe UI", 8.5f), ForeColor = Color.White, Checked = true, BackColor = Color.Transparent };
+            _chkRelayEnabled = new CheckBox { Text = "Mission Planner UDP Relay", AutoSize = true, Location = new Point(160, 6), Font = new Font("Segoe UI", 8.5f), ForeColor = Color.White, Checked = true, BackColor = Color.Transparent };
             _chkRelayEnabled.CheckedChanged += (s, e) => { _relayActive = _chkRelayEnabled.Checked; };
-            _lblRelayStatus = new Label { Text = "RELAY: Waiting...", AutoSize = true, Location = new Point(440, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
-            _lblMobileRelayStatus = new Label { Text = "WEB APP: Offline", AutoSize = true, Location = new Point(760, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
+            _lblRelayStatus = new Label { Text = "MP RELAY: Waiting...", AutoSize = true, Location = new Point(385, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
+            _lblMobileRelayStatus = new Label { Text = "WEB APP: Offline", AutoSize = true, Location = new Point(700, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
             statusBar.Controls.AddRange(new Control[] { lblPrimary, _chkRelayEnabled, _lblRelayStatus, _lblMobileRelayStatus });
             this.Controls.Add(statusBar);
 
@@ -456,17 +456,17 @@ namespace MinimalGCS
             if (_relayActive && _relayTxCount > 0)
             {
                 string mpStat = _mpConnected ? "CONNECTED" : "LISTENING";
-                _lblRelayStatus.Text = $"RELAY: {mpStat} | TX: {_relayTxCount} | RX: {_relayRxCount}";
+                _lblRelayStatus.Text = $"MP RELAY: {mpStat} | TX: {_relayTxCount} | RX: {_relayRxCount}";
                 _lblRelayStatus.ForeColor = _mpConnected ? Color.FromArgb(40, 167, 69) : Color.FromArgb(255, 193, 7);
             }
             else if (!_relayActive)
             {
-                _lblRelayStatus.Text = "RELAY: DISABLED";
+                _lblRelayStatus.Text = "MP RELAY: DISABLED";
                 _lblRelayStatus.ForeColor = Color.FromArgb(220, 53, 69);
             }
             else
             {
-                _lblRelayStatus.Text = "RELAY: Waiting for connection...";
+                _lblRelayStatus.Text = "MP RELAY: Waiting for Mission Planner...";
                 _lblRelayStatus.ForeColor = Color.Gray;
             }
 
