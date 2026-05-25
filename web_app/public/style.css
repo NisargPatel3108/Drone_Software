@@ -803,19 +803,22 @@ body {
 
 /* LIGHT MODE COMPATIBILITY STYLES */
 body.light-mode {
-  --bg-primary: #f1f5f9;
-  --bg-secondary: rgba(255, 255, 255, 0.85);
-  --card-bg: rgba(255, 255, 255, 0.7);
-  --card-border: rgba(0, 0, 0, 0.08);
+  --bg-primary: #f1f6f2; /* Soft greyish agricultural light green */
+  --bg-secondary: #ffffff;
+  --card-bg: #ffffff;
+  --card-border: #aed581; /* Grass green border */
   
-  --primary: #0d9488;
-  --primary-glow: rgba(13, 148, 136, 0.15);
+  --primary: #2e7d32; /* High-contrast Forest Emerald Green */
+  --primary-glow: rgba(46, 125, 50, 0.2);
   
-  --secondary: #7c3aed;
-  --secondary-glow: rgba(124, 58, 237, 0.15);
+  --secondary: #1565c0; /* Blue contrast accent */
+  --secondary-glow: rgba(21, 101, 192, 0.2);
   
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --success: #2e7d32;
+  --warning: #ef6c00;
+  --danger: #c62828;
+  --text-primary: #1b5e20; /* Peak contrast dark green text */
+  --text-secondary: #33691e;
 }
 
 body.light-mode #auth-screen {
@@ -864,4 +867,235 @@ body.light-mode #theme-btn {
 
 body.light-mode #theme-btn:active {
   background: rgba(0, 0, 0, 0.1);
+}
+
+/* MISSION QUICK LOAD CARDS */
+.missions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.section-header h2 {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+}
+
+.missions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mission-item-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  transition: background 0.2s;
+}
+
+body.light-mode .mission-item-card {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.mission-item-card:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+body.light-mode .mission-item-card:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mission-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mission-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.mission-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.btn-load-mission {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.empty-text {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-align: center;
+  font-style: italic;
+  padding: 12px 0;
+}
+
+/* CUSTOM MODAL OVERLAY */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2000;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.modal-overlay.active {
+  display: flex;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-secondary) !important;
+  border: 2px solid var(--primary) !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4) !important;
+  color: var(--text-primary);
+  padding: 24px;
+}
+
+body.light-mode .modal-card {
+  box-shadow: 0 12px 40px rgba(46,125,50,0.15) !important;
+}
+
+.modal-card h2 {
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+  margin-bottom: 6px;
+  color: var(--primary);
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.modal-card p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.modal-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-group label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+.input-group input {
+  background: var(--bg-primary) !important;
+  border: 1px solid var(--card-border) !important;
+  color: var(--text-primary) !important;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+}
+
+.input-group input:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.modal-actions button {
+  flex: 1;
+  padding: 14px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.modal-actions button:active {
+  opacity: 0.8;
+}
+
+.btn-secondary {
+  background: #78909c;
+  color: #fff;
+}
+
+.btn-success {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 4px 12px var(--primary-glow);
+}
+
+/* SPINNER FOR UPLOAD */
+.spinner {
+  border: 4px solid rgba(0, 0, 0, 0.08);
+  border-top: 4px solid var(--primary);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+body.light-mode .spinner {
+  border: 4px solid rgba(46, 125, 50, 0.08);
+  border-top: 4px solid var(--primary);
+}
+
+/* LEAFLET DRONE SMOOTH TRANSITION */
+.leaflet-marker-icon {
+  transition: transform 0.5s linear, top 0.5s linear, left 0.5s linear !important;
 }

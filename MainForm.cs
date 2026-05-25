@@ -257,6 +257,8 @@ namespace MinimalGCS
 
         private void DispatchPacket(MavLinkPacket pkt)
         {
+            if (pkt.SystemId == 255) return;
+
             if (!_drones.TryGetValue(pkt.SystemId, out var state))
             {
                 // Smart Fallback: If we only have one active drone connection, route all telemetry to it
@@ -532,6 +534,12 @@ namespace MinimalGCS
             private enum PanelState { IDLE, BUSY }
             private PanelState _pState = PanelState.IDLE;
 
+            private bool _isUploadingWaypoints = false;
+            private int _uploadProgressSeq = 0;
+
+            public bool IsUploadingWaypoints => _isUploadingWaypoints;
+            public int UploadProgressPercent => _uploadQueue.Count > 0 ? (int)((float)_uploadProgressSeq / _uploadQueue.Count * 100) : 0;
+
             public AgriWorkPanel(DiscoveredDevice device, DroneState state, MainForm main)
             {
                 _device = device; _state = state; _main = main;
@@ -544,6 +552,26 @@ namespace MinimalGCS
             public void TriggerResume() => _main.Invoke((MethodInvoker)delegate { SendSetMode(3); });
             public void TriggerRTL() => _main.Invoke((MethodInvoker)delegate { _state.ResumeWp = _state.CurrentWp; SendSetMode(6); });
             public void TriggerLand() => _main.Invoke((MethodInvoker)delegate { _state.ResumeWp = _state.CurrentWp; SendSetMode(9); });
+            
+            public void DeactivateButtonsForUpload(int totalWaypoints)
+            {
+                _isUploadingWaypoints = true;
+                _uploadProgressSeq = 0;
+                UpdateControlButtonsState(false);
+            }
+
+            public void UpdateControlButtonsState(bool enabled)
+            {
+                if (_btnStart != null) _btnStart.Enabled = enabled;
+                if (_btnPause != null) _btnPause.Enabled = enabled;
+                if (_btnResume != null) _btnResume.Enabled = enabled;
+                if (_btnRTL != null) _btnRTL.Enabled = enabled;
+                if (_btnLand != null) _btnLand.Enabled = enabled;
+                if (_btnPump != null) _btnPump.Enabled = enabled;
+                if (_btnUploadWp != null) _btnUploadWp.Enabled = enabled;
+                if (_btnRefreshFence != null) _btnRefreshFence.Enabled = enabled;
+                if (_btnApplyFence != null) _btnApplyFence.Enabled = enabled;
+            }
             public void TriggerPump() => _main.Invoke((MethodInvoker)delegate {
                 if (_state.Relay1 == 0)
                 {
@@ -902,13 +930,13 @@ namespace MinimalGCS
             public Mission ActiveMission { get; set; }
             private int _lastPumpState = 1;
 
-            private void UploadMission(Mission mission)
+            public void UploadMission(Mission mission, bool silent = false)
             {
                 try
                 {
                     if (mission.Waypoints.Count == 0)
                     {
-                        MessageBox.Show("No waypoints found in mission!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        if (!silent) MessageBox.Show("No waypoints found in mission!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
 
@@ -944,7 +972,7 @@ namespace MinimalGCS
                     _chkGeoFence.Checked = true;
 
                     _state.AddLog($"GEOFENCE AUTO-CONFIG: Alt = {autoGeoAlt:F1}m, Radius = {autoGeoRadius:F1}m (+1m buffer applied)");
-                    MessageBox.Show($"Mission uploaded successfully!\n\nAuto-Configured Geo-Fence Safeguards (+1m buffer):\n- Max Altitude: {autoGeoAlt:F1} meters\n- Max Radius: {autoGeoRadius:F1} meters", "Agri-Titan Safeguards Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!silent) MessageBox.Show($"Mission uploaded successfully!\n\nAuto-Configured Geo-Fence Safeguards (+1m buffer):\n- Max Altitude: {autoGeoAlt:F1} meters\n- Max Radius: {autoGeoRadius:F1} meters", "Agri-Titan Safeguards Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                     // Render mission path on the map with command types
                     _main.ClearMapWaypoints();
@@ -981,7 +1009,7 @@ namespace MinimalGCS
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed to parse waypoint file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    if (!silent) MessageBox.Show($"Failed to parse waypoint file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
 
@@ -998,6 +1026,7 @@ namespace MinimalGCS
             {
                 if (seq < _uploadQueue.Count)
                 {
+                    _uploadProgressSeq = seq;
                     var wp = _uploadQueue[seq];
                     byte[] itemPkt = MavLinkCommands.CreateMissionItem(
                         (byte)255, 1, 
@@ -1012,6 +1041,15 @@ namespace MinimalGCS
                     );
                     _device.Interface.Send(itemPkt);
                     _state.AddLog($"Sent Waypoint #{seq} of {_uploadQueue.Count}");
+
+                    // If upload finished, reactivate GCS buttons
+                    if (seq == _uploadQueue.Count - 1)
+                    {
+                        _isUploadingWaypoints = false;
+                        _uploadProgressSeq = 0;
+                        this.Invoke((Action)(() => UpdateControlButtonsState(true)));
+                        _state.AddLog("WAYPOINT UPLOAD COMPLETED!");
+                    }
                 }
             }
 
@@ -1201,6 +1239,9 @@ namespace MinimalGCS
                     byte[] regBytes = System.Text.Encoding.UTF8.GetBytes(regMsg);
                     await ws.SendAsync(new ArraySegment<byte>(regBytes), WebSocketMessageType.Text, true, token);
 
+                    // Send missions list immediately upon GCS handshake
+                    SendMissionsListToMobile(ws, token);
+
                     // 2Hz Telemetry stream
                     var senderTask = Task.Run(async () =>
                     {
@@ -1213,6 +1254,7 @@ namespace MinimalGCS
                                     var activeDrone = _drones.Values.FirstOrDefault(d => d.IsConnected);
                                     if (activeDrone != null)
                                     {
+                                        _panels.TryGetValue((byte)activeDrone.SysId, out var activePanel);
                                         var teleData = new {
                                             type = "telemetry",
                                             sysId = activeDrone.SysId,
@@ -1232,7 +1274,9 @@ namespace MinimalGCS
                                             voltage = activeDrone.Voltage,
                                             battery = activeDrone.BatteryPercent,
                                             pump = activeDrone.Relay1,
-                                            lastMessage = activeDrone.LastMessage
+                                            lastMessage = activeDrone.LastMessage,
+                                            isUploading = activePanel != null && activePanel.IsUploadingWaypoints,
+                                            uploadProgress = activePanel != null ? activePanel.UploadProgressPercent : 0
                                         };
 
                                         string json = JsonSerializer.Serialize(teleData);
@@ -1263,10 +1307,25 @@ namespace MinimalGCS
                                 using (var doc = JsonDocument.Parse(jsonMsg))
                                 {
                                     var root = doc.RootElement;
-                                    if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "command")
+                                    if (root.TryGetProperty("type", out var typeProp))
                                     {
-                                        string cmd = root.GetProperty("command").GetString() ?? "";
-                                        ExecuteMobileCommand(cmd);
+                                        string msgType = typeProp.GetString() ?? "";
+                                        if (msgType == "command")
+                                        {
+                                            string cmd = root.GetProperty("command").GetString() ?? "";
+                                            ExecuteMobileCommand(cmd);
+                                        }
+                                        else if (msgType == "request_missions")
+                                        {
+                                            SendMissionsListToMobile(ws, token);
+                                        }
+                                        else if (msgType == "load_mission")
+                                        {
+                                            string missionId = root.GetProperty("missionId").GetString() ?? "";
+                                            float speed = root.GetProperty("speed").GetSingle();
+                                            float height = root.GetProperty("height").GetSingle();
+                                            ExecuteMobileLoadMission(missionId, speed, height, ws, token);
+                                        }
                                     }
                                 }
                             }
@@ -1284,6 +1343,82 @@ namespace MinimalGCS
                     ws?.Dispose();
                     _wsClient = null;
                 }
+            }
+        }
+
+        private void SendMissionsListToMobile(ClientWebSocket ws, CancellationToken token)
+        {
+            try
+            {
+                var missionsList = MissionManager.GetMissions().Select(m => new {
+                    id = m.Id,
+                    name = m.Name,
+                    waypointsCount = m.Waypoints.Count,
+                    distance = m.TotalDistanceMeters
+                }).ToList();
+
+                var msg = JsonSerializer.Serialize(new {
+                    type = "missions_list",
+                    missions = missionsList
+                });
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(msg);
+                
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        if (ws.State == WebSocketState.Open)
+                        {
+                            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                        }
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+
+        private void ExecuteMobileLoadMission(string missionId, float speed, float height, ClientWebSocket ws, CancellationToken token)
+        {
+            if (this.IsDisposed) return;
+            try
+            {
+                var mission = MissionManager.GetMissions().FirstOrDefault(m => m.Id == missionId);
+                if (mission != null)
+                {
+                    // Update height for WAYPOINT (16) and TAKEOFF (22)
+                    foreach (var wp in mission.Waypoints)
+                    {
+                        if (wp.Command == 16 || wp.Command == 22)
+                        {
+                            wp.Alt = height;
+                        }
+                    }
+
+                    this.Invoke((Action)(() =>
+                    {
+                        if (_drones.Count == 0) return;
+                        var activeDrone = _drones.Values.FirstOrDefault(d => d.IsConnected);
+                        if (activeDrone == null) return;
+                        if (_panels.TryGetValue((byte)activeDrone.SysId, out var panel))
+                        {
+                            activeDrone.AddLog($"MOBILE LOAD MISSION: '{mission.Name}' Speed={speed}m/s Height={height}m");
+                            
+                            // 1. Set cruise speed via DO_CHANGE_SPEED MAVLink command (178)
+                            panel.SendCmd(178, 1, speed);
+
+                            // 2. Deactivate GCS buttons during upload
+                            panel.DeactivateButtonsForUpload(mission.Waypoints.Count);
+
+                            // 3. Upload mission silently
+                            panel.UploadMission(mission, silent: true);
+                        }
+                    }));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WebSocket Mobile Load Mission Error]: {ex.Message}");
             }
         }
 

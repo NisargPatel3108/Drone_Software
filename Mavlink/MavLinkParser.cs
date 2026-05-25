@@ -22,6 +22,30 @@ namespace MinimalGCS.Mavlink
             WaitCrc2
         }
 
+        public static readonly Dictionary<uint, byte> MessageLengths = new Dictionary<uint, byte>
+        {
+            { 0, 9 },     // HEARTBEAT
+            { 1, 31 },    // SYS_STATUS
+            { 24, 30 },   // GPS_RAW_INT
+            { 33, 28 },   // GLOBAL_POSITION_INT
+            { 30, 28 },   // ATTITUDE
+            { 74, 20 },   // VFR_HUD
+            { 124, 35 },  // GPS2_RAW
+            { 127, 35 },  // GPS_RTK
+            { 42, 2 },    // MISSION_CURRENT
+            { 253, 147 }, // STATUSTEXT
+            { 76, 33 },   // COMMAND_LONG
+            { 11, 6 },    // SET_MODE
+            { 36, 37 },   // SERVO_OUTPUT_RAW
+            { 39, 37 },   // MISSION_ITEM
+            { 40, 4 },    // MISSION_REQUEST
+            { 44, 4 },    // MISSION_COUNT
+            { 47, 3 },    // MISSION_ACK
+            { 20, 20 },   // PARAM_REQUEST_READ
+            { 22, 25 },   // PARAM_VALUE
+            { 23, 23 }    // PARAM_SET
+        };
+
         private ParseState _state = ParseState.WaitStx;
         private MavLinkPacket _currentPacket = new MavLinkPacket();
         private int _payloadCounter = 0;
@@ -131,7 +155,30 @@ namespace MinimalGCS.Mavlink
                     // Validate CRC
                     if (MavLinkMessages.CrcExtras.TryGetValue(_currentPacket.MessageId, out byte crcExtra))
                     {
-                        ushort calc = MavLinkPacket.CalculateChecksum(_rawForCrc.ToArray(), crcExtra);
+                        var crcBytes = new List<byte>(_rawForCrc);
+                        
+                        // Handle MAVLink v2 zero-trimming padding for CRC calculation
+                        int stdLen = _currentPacket.PayloadLength;
+                        if (MessageLengths.TryGetValue(_currentPacket.MessageId, out byte definedLen))
+                        {
+                            stdLen = definedLen;
+                        }
+
+                        if (_currentPacket.IsV2 && stdLen > _currentPacket.PayloadLength)
+                        {
+                            int padding = stdLen - _currentPacket.PayloadLength;
+                            for (int i = 0; i < padding; i++)
+                            {
+                                crcBytes.Add(0);
+                            }
+
+                            // Pad the actual packet payload array so consumers don't throw IndexOutOfRange
+                            byte[] paddedPayload = new byte[stdLen];
+                            Buffer.BlockCopy(_currentPacket.Payload, 0, paddedPayload, 0, _currentPacket.PayloadLength);
+                            _currentPacket.Payload = paddedPayload;
+                        }
+
+                        ushort calc = MavLinkPacket.CalculateChecksum(crcBytes.ToArray(), crcExtra);
                         if (calc == _currentPacket.Checksum)
                         {
                             PacketReceived?.Invoke(_currentPacket);

@@ -130,6 +130,17 @@
         <div id="map"></div>
       </section>
 
+      <!-- 3.5. LAPTOP SAVED MISSIONS (QUICK LOAD) -->
+      <section class="missions-section glass-card">
+        <div class="section-header">
+          <h2>SAVED LAPTOP MISSIONS</h2>
+          <span class="badge badge-glow" id="lbl-missions-count">0 SAVED</span>
+        </div>
+        <div id="missions-container" class="missions-container">
+          <p class="empty-text">Awaiting laptop connection for saved missions...</p>
+        </div>
+      </section>
+
       <!-- 4. PUMP CONTROL SWITCH -->
       <section class="pump-section glass-card">
         <div class="pump-info">
@@ -210,6 +221,39 @@
         <div class="warning-icon">!</div>
         <h2>GCS LINK INACTIVE</h2>
         <p>Laptop GCS application is offline. Verify desktop Agri-Titan GCS is running and connected to a drone.</p>
+      </div>
+    </div>
+
+    <!-- MISSION PARAMS MODAL -->
+    <div id="params-modal" class="modal-overlay">
+      <div class="modal-card glass-card">
+        <h2>MISSION PARAMETERS</h2>
+        <p>Configure drone flight parameters for this mission:</p>
+        
+        <div class="modal-inputs">
+          <div class="input-group">
+            <label for="modal-speed">FLIGHT SPEED (m/s)</label>
+            <input type="number" id="modal-speed" value="5.0" min="1" max="15" step="0.5">
+          </div>
+          <div class="input-group">
+            <label for="modal-height">SPRAY HEIGHT (meters)</label>
+            <input type="number" id="modal-height" value="5.0" min="2" max="30" step="0.5">
+          </div>
+        </div>
+        
+        <div class="modal-actions">
+          <button id="modal-cancel-btn" class="btn btn-secondary">CANCEL</button>
+          <button id="modal-upload-btn" class="btn btn-success">UPLOAD TO DRONE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- UPLOAD OVERLAY -->
+    <div id="upload-overlay" class="connection-overlay">
+      <div class="warning-dialog">
+        <div class="spinner"></div>
+        <h2 id="upload-title" style="color: var(--primary);">UPLOADING WAYPOINTS</h2>
+        <p id="upload-progress-text">Please wait while the mission waypoints are being uploaded to the drone...</p>
       </div>
     </div>
   </div>

@@ -121,8 +121,9 @@ function initMap() {
     attributionControl: false
   }).setView([20.5937, 78.9629], 5); // Default to India center
   
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
+  L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    maxZoom: 22,
+    maxNativeZoom: 20
   }).addTo(mapInstance);
   
   // Custom rotating hexacopter marker icon using raw SVG
@@ -214,6 +215,9 @@ function connectWebSocket() {
       }
       else if (data.type === 'telemetry') {
         handleTelemetryUpdate(data);
+      }
+      else if (data.type === 'missions_list') {
+        handleMissionsList(data.missions);
       }
       else if (data.type === 'error') {
         authError.textContent = data.message.toUpperCase();
@@ -390,6 +394,19 @@ function handleTelemetryUpdate(tele) {
     updateDroneLocationOnMap(tele.lat, tele.lon, tele.heading);
   }
   
+  // Active Waypoint Upload Lockout
+  const uploadOverlay = document.getElementById('upload-overlay');
+  const uploadProgressText = document.getElementById('upload-progress-text');
+  if (tele.isUploading) {
+    if (uploadOverlay) uploadOverlay.classList.add('active');
+    if (uploadProgressText) {
+      uploadProgressText.innerHTML = `Waypoints are being uploaded from laptop to your drone.<br><br><b>Upload Progress: ${tele.uploadProgress}%</b>`;
+    }
+    enableControlInputs(false);
+  } else {
+    if (uploadOverlay) uploadOverlay.classList.remove('active');
+  }
+
   // Logs stream
   if (tele.lastMessage && tele.lastMessage !== "Ready") {
     addAutopilotLog(tele.lastMessage);
@@ -585,11 +602,14 @@ function sendCommand(cmdName) {
 
 // 9. LIGHT/DARK THEME CONTROLLER
 const themeBtn = document.getElementById('theme-btn');
-let currentTheme = localStorage.getItem('agri_titan_theme') || 'dark';
+let currentTheme = localStorage.getItem('agri_titan_theme') || 'light';
 
 if (currentTheme === 'light') {
   document.body.classList.add('light-mode');
   if (themeBtn) themeBtn.textContent = '🌙';
+} else {
+  document.body.classList.remove('light-mode');
+  if (themeBtn) themeBtn.textContent = '☀️';
 }
 
 if (themeBtn) {
@@ -599,4 +619,80 @@ if (themeBtn) {
     localStorage.setItem('agri_titan_theme', currentTheme);
     themeBtn.textContent = isLight ? '🌙' : '☀️';
   });
+}
+
+// 10. LAPTOP MISSIONS QUICK LOAD & PARAMS DIALOG
+const elMissionsContainer = document.getElementById('missions-container');
+const elMissionsCount = document.getElementById('lbl-missions-count');
+const paramsModal = document.getElementById('params-modal');
+const modalSpeedInput = document.getElementById('modal-speed');
+const modalHeightInput = document.getElementById('modal-height');
+const modalCancelBtn = document.getElementById('modal-cancel-btn');
+const modalUploadBtn = document.getElementById('modal-upload-btn');
+
+let selectedMissionId = null;
+
+function handleMissionsList(missions) {
+  if (!elMissionsContainer) return;
+  elMissionsContainer.innerHTML = '';
+  
+  if (elMissionsCount) {
+    elMissionsCount.textContent = `${missions.length} SAVED`;
+  }
+  
+  if (missions.length === 0) {
+    elMissionsContainer.innerHTML = '<p class="empty-text">No saved missions found on laptop.</p>';
+    return;
+  }
+  
+  missions.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'mission-item-card';
+    card.innerHTML = `
+      <div class="mission-details">
+        <span class="mission-name">${m.name}</span>
+        <span class="mission-sub">${m.waypointsCount} WPs | ${Math.round(m.distance)}m total</span>
+      </div>
+      <button class="btn-load-mission">QUICK LOAD</button>
+    `;
+    
+    // Bind click to open dialog
+    card.querySelector('.btn-load-mission').onclick = () => {
+      openMissionParams(m.id);
+    };
+    
+    elMissionsContainer.appendChild(card);
+  });
+}
+
+function openMissionParams(missionId) {
+  selectedMissionId = missionId;
+  if (paramsModal) {
+    paramsModal.classList.add('active');
+  }
+}
+
+if (modalCancelBtn) {
+  modalCancelBtn.onclick = () => {
+    if (paramsModal) paramsModal.classList.remove('active');
+  };
+}
+
+if (modalUploadBtn) {
+  modalUploadBtn.onclick = () => {
+    const speed = parseFloat(modalSpeedInput.value) || 5.0;
+    const height = parseFloat(modalHeightInput.value) || 5.0;
+    
+    if (socket && socket.readyState === WebSocket.OPEN && selectedMissionId) {
+      socket.send(JSON.stringify({
+        type: 'load_mission',
+        missionId: selectedMissionId,
+        speed: speed,
+        height: height
+      }));
+      addAutopilotLog(`REQUESTING LAPTOP UPLOAD: Speed=${speed}m/s Alt=${height}m`);
+    }
+    
+    if (paramsModal) paramsModal.classList.remove('active');
+  };
 }

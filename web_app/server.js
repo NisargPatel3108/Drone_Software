@@ -87,22 +87,20 @@ wss.on('connection', (ws, request) => {
 
       // 2. BIDIRECTIONAL ROUTING PHASE
       if (clientType === 'gcs') {
-        // GCS sends telemetry -> Cache and forward to all mobile devices
+        // Cache last telemetry state for new mobile connections
         if (data.type === 'telemetry') {
           lastTelemetry = data;
-          const msgString = JSON.stringify(data);
-          broadcastToMobiles(msgString);
         }
+        // Generically relay all GCS messages (telemetry, missions_list, status updates) to mobiles
+        broadcastToMobiles(JSON.stringify(data));
       } 
       else if (clientType === 'mobile' && isAuthenticated) {
-        // Mobile sends a command -> Forward ONLY to the C# GCS client
-        if (data.type === 'command') {
-          console.log(`Forwarding Mobile Command: ${data.command}`);
-          if (gcsSocket && gcsSocket.readyState === WebSocket.OPEN) {
-            gcsSocket.send(JSON.stringify(data));
-          } else {
-            ws.send(JSON.stringify({ type: 'error', message: 'GCS Unavailable. Verify desktop application is running.' }));
-          }
+        // Generically relay all authenticated mobile client messages (commands, load_mission, request_missions) to GCS
+        console.log(`Relaying Mobile Client Message: ${data.type}`);
+        if (gcsSocket && gcsSocket.readyState === WebSocket.OPEN) {
+          gcsSocket.send(JSON.stringify(data));
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'GCS Unavailable. Verify desktop application is running.' }));
         }
       }
     } catch (err) {
