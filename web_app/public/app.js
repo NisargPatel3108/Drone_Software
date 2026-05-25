@@ -9,10 +9,8 @@ let passcode = localStorage.getItem('agri_titan_passcode') || "";
 // - If the UI is hosted *together* with the relay (recommended), leave this empty to use same-origin `/ws`.
 // - If the UI is hosted as static-only (e.g. Netlify), set a full relay URL in Server Settings (or keep the legacy Render default).
 const legacyCloudRelay = "wss://agri-titan-relay.onrender.com";
-const inferredDefaultRelay =
-  (window.location.hostname.includes("netlify.app") || window.location.hostname.includes("github.io"))
-    ? legacyCloudRelay
-    : "";
+const isStaticWebHost = window.location.hostname.includes("netlify.app") || window.location.hostname.includes("github.io");
+const inferredDefaultRelay = isStaticWebHost ? legacyCloudRelay : "";
 let customServerUrl = getInitialServerUrl();
 let isArmedGlobal = false;
 let droneMarker = null;
@@ -323,16 +321,13 @@ function updateDroneLocationOnMap(lat, lon, heading) {
 // 3. WEBSOCKET CONTROLLER
 function getInitialServerUrl() {
   const savedUrl = (localStorage.getItem('agri_titan_server_url') || "").trim();
-  const isStaticHost = window.location.hostname.includes("netlify.app") || window.location.hostname.includes("github.io");
 
-  if (!savedUrl) return inferredDefaultRelay;
-
-  if (isStaticHost && (savedUrl.includes("netlify.app") || savedUrl.includes("localhost") || savedUrl.includes("127.0.0.1"))) {
+  if (isStaticWebHost) {
     localStorage.setItem('agri_titan_server_url', legacyCloudRelay);
     return legacyCloudRelay;
   }
 
-  return savedUrl;
+  return savedUrl || inferredDefaultRelay;
 }
 
 function normalizeRelayUrl(inputUrl) {
@@ -364,8 +359,13 @@ function connectWebSocket() {
     reconnectTimer = null;
   }
 
+  customServerUrl = getInitialServerUrl();
+  if (serverUrlInput) serverUrlInput.value = customServerUrl;
+
   const wsUrl = normalizeRelayUrl(customServerUrl);
   currentWsUrl = wsUrl;
+  fetchRelayStatus();
+  startRelayStatusPolling();
   
   console.log(`Connecting to WebSocket: ${wsUrl}`);
   socket = new WebSocket(wsUrl);
@@ -382,7 +382,6 @@ function connectWebSocket() {
     }));
 
     fetchRelayStatus();
-    startRelayStatusPolling();
   };
   
   socket.onmessage = (event) => {
@@ -413,7 +412,6 @@ function connectWebSocket() {
   socket.onclose = () => {
     console.log('Socket disconnected. Reconnecting in 3s...');
     indServer.classList.remove('online');
-    stopRelayStatusPolling();
     
     // Update warning overlay for Server Offline state
     const warningText = document.querySelector('#connection-warning p');
@@ -463,6 +461,10 @@ function handleGcsStatus(connected) {
     indGcs.classList.add('online');
     indGcs.innerHTML = '<span class="pill-dot"></span><span>GCS</span>';
     connectionWarning.classList.remove('active');
+    const warningTitle = document.querySelector('#connection-warning .overlay-title');
+    const warningText = document.querySelector('#connection-warning .overlay-msg');
+    if (warningTitle) warningTitle.textContent = "GCS LINK ACTIVE";
+    if (warningText) warningText.innerHTML = `Connected through <b>${currentWsUrl || normalizeRelayUrl(customServerUrl)}</b>`;
     enableControlInputs(true);
   } else {
     indGcs.classList.add('offline');
