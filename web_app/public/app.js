@@ -230,6 +230,15 @@ function connectWebSocket() {
   socket.onclose = () => {
     console.log('Socket disconnected. Reconnecting in 3s...');
     indServer.classList.remove('online');
+    
+    // Update warning overlay for Server Offline state
+    const warningText = document.querySelector('#connection-warning p');
+    const warningTitle = document.querySelector('#connection-warning h2');
+    if (warningTitle) warningTitle.textContent = "RELAY SERVER OFFLINE";
+    if (warningText) {
+      warningText.innerHTML = "Cannot connect to your Render cloud server.<br><br>1. Verify your Render web service status is green and <b>Live</b>.<br>2. Verify your Server URL in <b>⚙ Server Settings</b> is correct.";
+    }
+    
     handleGcsStatus(false);
     setTimeout(connectWebSocket, 3000);
   };
@@ -250,6 +259,16 @@ function handleGcsStatus(connected) {
     indGcs.classList.remove('online');
     indGcs.innerHTML = '<span class="dot"></span> GCS: Offline';
     connectionWarning.classList.add('active');
+    
+    // If the server is connected but GCS is offline, show helpful GCS setup steps
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const warningText = document.querySelector('#connection-warning p');
+      const warningTitle = document.querySelector('#connection-warning h2');
+      if (warningTitle) warningTitle.textContent = "AWAITING LAPTOP GCS LINK";
+      if (warningText) {
+        warningText.innerHTML = "Connected to Render server! Awaiting connection from your laptop GCS.<br><br>1. Open the <b>relay_config.txt</b> file inside your GCS folder on your laptop.<br>2. Enter your Render URL: <b>wss://agri-titan-relay.onrender.com/ws</b>.<br>3. Run your C# GCS application on your laptop.";
+      }
+    }
     
     // Reset Telemetry display
     resetTelemetryDisplay();
