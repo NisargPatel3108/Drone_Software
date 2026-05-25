@@ -563,3 +563,21 @@ function sendCommand(cmdName) {
     addAutopilotLog("ERROR: Connection to remote server lost.");
   }
 }
+
+// 9. LIGHT/DARK THEME CONTROLLER
+const themeBtn = document.getElementById('theme-btn');
+let currentTheme = localStorage.getItem('agri_titan_theme') || 'dark';
+
+if (currentTheme === 'light') {
+  document.body.classList.add('light-mode');
+  if (themeBtn) themeBtn.textContent = '🌙';
+}
+
+if (themeBtn) {
+  themeBtn.addEventListener('click', () => {
+    const isLight = document.body.classList.toggle('light-mode');
+    currentTheme = isLight ? 'light' : 'dark';
+    localStorage.setItem('agri_titan_theme', currentTheme);
+    themeBtn.textContent = isLight ? '🌙' : '☀️';
+  });
+}

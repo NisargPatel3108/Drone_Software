@@ -774,3 +774,94 @@ body {
   50% { opacity: 1; }
   100% { opacity: 0.5; }
 }
+
+/* HEADER CONTROLS & THEME TOGGLE */
+.header-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+#theme-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  outline: none;
+}
+
+#theme-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* LIGHT MODE COMPATIBILITY STYLES */
+body.light-mode {
+  --bg-primary: #f1f5f9;
+  --bg-secondary: rgba(255, 255, 255, 0.85);
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-border: rgba(0, 0, 0, 0.08);
+  
+  --primary: #0d9488;
+  --primary-glow: rgba(13, 148, 136, 0.15);
+  
+  --secondary: #7c3aed;
+  --secondary-glow: rgba(124, 58, 237, 0.15);
+  
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+}
+
+body.light-mode #auth-screen {
+  background: radial-gradient(circle at center, #f8fafc 0%, #e2e8f0 100%);
+}
+
+body.light-mode .settings-accordion {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+body.light-mode .settings-panel input {
+  background: rgba(255, 255, 255, 0.8) !important;
+  color: #000 !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+body.light-mode .auth-body input {
+  background: rgba(255, 255, 255, 0.8) !important;
+  color: #000 !important;
+}
+
+body.light-mode .slide-container {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .slide-container.emergency {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+body.light-mode .slide-container.emergency .slide-text {
+  color: var(--danger);
+}
+
+body.light-mode .log-list {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+body.light-mode .connection-overlay {
+  background: rgba(241, 245, 249, 0.95);
+}
+
+body.light-mode #theme-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--card-border);
+}
+
+body.light-mode #theme-btn:active {
+  background: rgba(0, 0, 0, 0.1);
+}
