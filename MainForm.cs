@@ -5,6 +5,9 @@ using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Net.WebSockets;
+using System.Text.Json;
+using System.Threading;
 using MinimalGCS.Connection;
 using MinimalGCS.Mavlink;
 
@@ -30,6 +33,10 @@ namespace MinimalGCS
         private ConcurrentDictionary<byte, DroneState> _drones = new ConcurrentDictionary<byte, DroneState>();
         private Dictionary<byte, AgriWorkPanel> _panels = new Dictionary<byte, AgriWorkPanel>();
 
+        // WebSocket Client for Mobile Remote Control
+        private ClientWebSocket? _wsClient;
+        private CancellationTokenSource? _wsCts;
+
         public MainForm()
         {
             InitializeComponent();
@@ -43,6 +50,9 @@ namespace MinimalGCS
             _uiTicker = new System.Windows.Forms.Timer { Interval = 100 };
             _uiTicker.Tick += Timer_Tick;
             _uiTicker.Start();
+
+            // Start background WebSocket client to connect to Mobile Relay
+            Task.Run(() => StartWebSocketClient());
         }
 
         private void SetupAgriUI()
@@ -739,8 +749,8 @@ namespace MinimalGCS
                 b.FlatAppearance.BorderSize = 0; return b;
             }
 
-            private void SendSetMode(uint m) => _device.Interface.Send(MavLinkCommands.CreateSetMode(255, 1, _device.SysId, 1, m));
-            private void SendCmd(ushort c, float p1, float p2=0, float p3=0, float p4=0, float p5=0, float p6=0, float p7=0) 
+            public void SendSetMode(uint m) => _device.Interface.Send(MavLinkCommands.CreateSetMode(255, 1, _device.SysId, 1, m));
+            public void SendCmd(ushort c, float p1, float p2=0, float p3=0, float p4=0, float p5=0, float p6=0, float p7=0) 
                 => _device.Interface.Send(MavLinkCommands.CreateCommandLong(255, 1, _device.SysId, _device.CompId, c, p1, p2, p3, p4, p5, p6, p7));
         }
 
@@ -760,5 +770,192 @@ namespace MinimalGCS
             public byte AutoContinue { get; set; }
         }
 
+        // --- WEB APP / WEBSOCKET CONTROL CLIENT ---
+        private async Task StartWebSocketClient()
+        {
+            _wsCts = new CancellationTokenSource();
+            var token = _wsCts.Token;
+
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "relay_config.txt");
+                    string wsUrl = "ws://localhost:8080/ws";
+                    if (File.Exists(configPath))
+                    {
+                        try
+                        {
+                            string readUrl = File.ReadAllText(configPath).Trim();
+                            if (!string.IsNullOrEmpty(readUrl))
+                            {
+                                wsUrl = readUrl;
+                            }
+                        }
+                        catch { }
+                    }
+                    else
+                    {
+                        try { File.WriteAllText(configPath, wsUrl); } catch { }
+                    }
+
+                    Uri serverUri = new Uri(wsUrl);
+                    await _wsClient.ConnectAsync(serverUri, token);
+
+                    var regMsg = JsonSerializer.Serialize(new { type = "register", client = "gcs" });
+                    byte[] regBytes = System.Text.Encoding.UTF8.GetBytes(regMsg);
+                    await _wsClient.SendAsync(new ArraySegment<byte>(regBytes), WebSocketMessageType.Text, true, token);
+
+                    // 2Hz Telemetry stream
+                    var senderTask = Task.Run(async () =>
+                    {
+                        while (_wsClient.State == WebSocketState.Open && !token.IsCancellationRequested)
+                        {
+                            try
+                            {
+                                if (_drones.Count > 0)
+                                {
+                                    var activeDrone = _drones.Values.FirstOrDefault(d => d.IsConnected);
+                                    if (activeDrone != null)
+                                    {
+                                        var teleData = new {
+                                            type = "telemetry",
+                                            sysId = activeDrone.SysId,
+                                            isArmed = activeDrone.IsArmed,
+                                            mode = activeDrone.Mode,
+                                            modeName = GetModeName(activeDrone.Mode),
+                                            gpsFix = activeDrone.GpsFixType,
+                                            gpsStatus = GetGpsStatusName(activeDrone.GpsFixType),
+                                            sats = activeDrone.SatellitesCount,
+                                            hdop = activeDrone.Hdop,
+                                            lat = activeDrone.Lat,
+                                            lon = activeDrone.Lon,
+                                            heading = activeDrone.Heading,
+                                            speed = activeDrone.GroundSpeed,
+                                            alt = activeDrone.Alt,
+                                            maxAlt = activeDrone.MaxAlt,
+                                            voltage = activeDrone.Voltage,
+                                            battery = activeDrone.BatteryPercent,
+                                            pump = activeDrone.Relay1,
+                                            lastMessage = activeDrone.LastMessage
+                                        };
+
+                                        string json = JsonSerializer.Serialize(teleData);
+                                        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                                        await _wsClient.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                                    }
+                                }
+                            }
+                            catch { }
+                            await Task.Delay(500, token);
+                        }
+                    }, token);
+
+                    // Receive commands loop
+                    byte[] buffer = new byte[8192];
+                    while (_wsClient.State == WebSocketState.Open && !token.IsCancellationRequested)
+                    {
+                        var result = await _wsClient.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            await _wsClient.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", token);
+                        }
+                        else if (result.MessageType == WebSocketMessageType.Text)
+                        {
+                            string jsonMsg = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                            try
+                            {
+                                using (var doc = JsonDocument.Parse(jsonMsg))
+                                {
+                                    var root = doc.RootElement;
+                                    if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "command")
+                                    {
+                                        string cmd = root.GetProperty("command").GetString() ?? "";
+                                        ExecuteMobileCommand(cmd);
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch
+                {
+                    await Task.Delay(3000, token);
+                }
+                finally
+                {
+                    _wsClient?.Dispose();
+                }
+            }
+        }
+
+        private void ExecuteMobileCommand(string cmd)
+        {
+            if (this.IsDisposed) return;
+            try
+            {
+                this.Invoke((Action)(() =>
+                {
+                    if (_drones.Count == 0) return;
+                    var activeDrone = _drones.Values.FirstOrDefault(d => d.IsConnected);
+                    if (activeDrone == null) return;
+
+                    if (_panels.TryGetValue((byte)activeDrone.SysId, out var panel))
+                    {
+                        activeDrone.AddLog($"MOBILE COMMAND RECEIVED: {cmd}");
+                        switch (cmd.ToUpper())
+                        {
+                            case "ARM":
+                                panel.SendCmd(400, 1, 21196);
+                                break;
+                            case "DISARM":
+                                panel.SendCmd(400, 0, 21196);
+                                break;
+                            case "RTL":
+                                panel.SendSetMode(6);
+                                break;
+                            case "LAND":
+                                panel.SendSetMode(9);
+                                break;
+                            case "START_MISSION":
+                                Task.Run(async () => {
+                                    try
+                                    {
+                                        panel.SendSetMode(5);
+                                        await Task.Delay(500);
+                                        panel.SendCmd(400, 1, 21196);
+                                        await Task.Delay(1000);
+                                        panel.SendSetMode(3);
+                                        await Task.Delay(500);
+                                        panel.SendCmd(300, activeDrone.ResumeWp, 0);
+                                        activeDrone.AddLog("MOBILE START MISSION SENT");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        activeDrone.AddLog($"MOBILE START MISSION ERROR: {ex.Message}");
+                                    }
+                                });
+                                break;
+                            case "PUMP_ON":
+                                panel.SendCmd(181, 0, 0);
+                                activeDrone.Relay1 = 0;
+                                break;
+                            case "PUMP_OFF":
+                                panel.SendCmd(181, 0, 1);
+                                activeDrone.Relay1 = 1;
+                                break;
+                        }
+                    }
+                }));
+            }
+            catch { }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            _wsCts?.Cancel();
+            base.OnFormClosing(e);
+        }
     }
 }
