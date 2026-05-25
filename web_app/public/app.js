@@ -1,3 +1,12 @@
+// SERVICE WORKER REGISTRATION FOR PWA SUPPORT
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('Service Worker Registered Successfully! Scope:', reg.scope))
+      .catch(err => console.error('Service Worker Registration Failed:', err));
+  });
+}
+
 // STATE & CONFIGURATION
 let socket = null;
 let lastGcsState = false;
@@ -6,6 +15,15 @@ let customServerUrl = localStorage.getItem('agri_titan_server_url') || "wss://ag
 let isArmedGlobal = false;
 let droneMarker = null;
 let mapInstance = null;
+
+// PWA MAP VISUALIZATION STATE
+let activeMissionsList = [];
+let currentActiveMission = null;
+let mobileWaypointMarkers = [];
+let mobilePathLine = null;
+let mobileCompletedLine = null;
+let mobileRunningLine = null;
+let mobileLandingMarker = null;
 
 // Map configuration
 const MAP_ZOOM = 17;
@@ -148,6 +166,136 @@ function initMap() {
   });
   
   droneMarker = L.marker([20.5937, 78.9629], { icon: droneIcon }).addTo(mapInstance);
+  mobilePathLine = L.polyline([], { color: '#fd7e14', weight: 3, opacity: 0.7, dashArray: '8 4' }).addTo(mapInstance);
+  mobileCompletedLine = L.polyline([], { color: '#10b8a6', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(mapInstance);
+  mobileRunningLine = L.polyline([], { className: 'running-path-animation', color: '#ffc107', weight: 4, opacity: 0.9 }).addTo(mapInstance);
+}
+
+function drawMissionOnMobileMap(mission) {
+  if (!mapInstance || !mission || !mission.waypoints) return;
+  
+  // Clear existing mobile waypoint markers
+  mobileWaypointMarkers.forEach(m => mapInstance.removeLayer(m));
+  mobileWaypointMarkers = [];
+  if (mobileLandingMarker) {
+    mapInstance.removeLayer(mobileLandingMarker);
+    mobileLandingMarker = null;
+  }
+  
+  const points = [];
+  mission.waypoints.forEach(wp => {
+    if (wp.lat === 0 && wp.lon === 0) return;
+    points.push([wp.lat, wp.lon]);
+    
+    const isTakeoff = (wp.command === 22 || wp.index === 1);
+    const isLand = (wp.command === 21 || wp.command === 20);
+    const label = wp.index === 0 ? 'H' : (isTakeoff ? 'T' : (isLand ? 'L' : wp.index));
+    const bg = wp.index === 0 ? '#10b8a6' : (isTakeoff ? '#3b82f6' : (isLand ? '#ef4444' : '#f59e0b'));
+    
+    const icon = L.divIcon({
+      html: `<div style="background:${bg};color:#fff;border:2px solid #fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--font-mono);font-size:10px;box-shadow:0 2px 6px rgba(0,0,0,.5);">${label}</div>`,
+      className: 'leaflet-div-icon',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11]
+    });
+    
+    const m = L.marker([wp.lat, wp.lon], { icon: icon }).addTo(mapInstance);
+    mobileWaypointMarkers.push(m);
+  });
+  
+  mobilePathLine.setLatLngs(points);
+  mobileCompletedLine.setLatLngs([]);
+  mobileRunningLine.setLatLngs([]);
+  
+  if (mobileWaypointMarkers.length > 1) {
+    mapInstance.fitBounds(new L.featureGroup(mobileWaypointMarkers).getBounds().pad(0.15));
+  }
+}
+
+function updateMobileMissionProgress(currentWp, totalWp, modeName, droneLat, droneLon) {
+  if (!currentActiveMission || !currentActiveMission.waypoints) return;
+  
+  const wps = currentActiveMission.waypoints.filter(w => w.lat !== 0 && w.lon !== 0);
+  if (wps.length === 0) return;
+  
+  const completedCoords = [];
+  const remainingCoords = [];
+  
+  let activeSegIdx = -1;
+  for (let i = 0; i < wps.length; i++) {
+    if (wps[i].index === currentWp) {
+      activeSegIdx = i;
+      break;
+    }
+  }
+  
+  if (activeSegIdx >= 0) {
+    for (let i = 0; i < activeSegIdx; i++) {
+      completedCoords.push([wps[i].lat, wps[i].lon]);
+    }
+    completedCoords.push([droneLat, droneLon]);
+    
+    remainingCoords.push([droneLat, droneLon]);
+    for (let i = activeSegIdx; i < wps.length; i++) {
+      remainingCoords.push([wps[i].lat, wps[i].lon]);
+    }
+  } else {
+    if (currentWp === 0) {
+      wps.forEach(wp => remainingCoords.push([wp.lat, wp.lon]));
+    } else {
+      wps.forEach(wp => completedCoords.push([wp.lat, wp.lon]));
+    }
+  }
+  
+  mobileCompletedLine.setLatLngs(completedCoords);
+  mobilePathLine.setLatLngs(remainingCoords);
+  
+  const modeUpper = (modeName || "").toUpperCase();
+  const isLandingOrRtl = (modeUpper === "LAND" || modeUpper === "RTL" || (totalWp > 0 && currentWp >= totalWp));
+  
+  mobileWaypointMarkers.forEach((m) => {
+    if (isLandingOrRtl) {
+      m.setOpacity(0.3);
+    } else {
+      m.setOpacity(1.0);
+    }
+  });
+  
+  let landingTarget = null;
+  wps.forEach(wp => {
+    if (wp.command === 21) {
+      landingTarget = [wp.lat, wp.lon];
+    }
+  });
+  if (!landingTarget && wps.length > 0) {
+    landingTarget = [wps[0].lat, wps[0].lon];
+  }
+  
+  if (isLandingOrRtl && landingTarget) {
+    mobileRunningLine.setLatLngs([
+      [droneLat, droneLon],
+      landingTarget
+    ]);
+    
+    if (!mobileLandingMarker) {
+      mobileLandingMarker = L.marker(landingTarget, {
+        icon: L.divIcon({
+          html: '<div class="glowing-land-marker" style="transform: translate(-50%, -50%);">LANDING ZONE</div>',
+          className: 'leaflet-div-icon',
+          iconSize: [100, 24],
+          iconAnchor: [50, 12]
+        })
+      }).addTo(mapInstance);
+    } else {
+      mobileLandingMarker.setLatLng(landingTarget);
+    }
+  } else {
+    mobileRunningLine.setLatLngs([]);
+    if (mobileLandingMarker) {
+      mapInstance.removeLayer(mobileLandingMarker);
+      mobileLandingMarker = null;
+    }
+  }
 }
 
 function updateDroneLocationOnMap(lat, lon, heading) {
@@ -389,9 +537,23 @@ function handleTelemetryUpdate(tele) {
     elPumpSubText.style.color = "var(--text-secondary)";
   }
   
+  // Auto-detect currently running GCS mission if not set but we have activeMissionsList
+  if (tele.totalWp > 0 && (!currentActiveMission || currentActiveMission.waypointsCount !== tele.totalWp)) {
+    const matched = activeMissionsList.find(m => m.waypointsCount === tele.totalWp);
+    if (matched) {
+      currentActiveMission = matched;
+      drawMissionOnMobileMap(currentActiveMission);
+    }
+  }
+
   // Map updates (only if coordinate is valid)
   if (tele.lat !== 0 && tele.lon !== 0) {
     updateDroneLocationOnMap(tele.lat, tele.lon, tele.heading);
+    
+    // Draw and split active mission progress on mobile map
+    if (currentActiveMission) {
+      updateMobileMissionProgress(tele.currentWp, tele.totalWp, tele.modeName, tele.lat, tele.lon);
+    }
   }
   
   // Active Waypoint Upload Lockout
@@ -405,6 +567,9 @@ function handleTelemetryUpdate(tele) {
     enableControlInputs(false);
   } else {
     if (uploadOverlay) uploadOverlay.classList.remove('active');
+    if (lastGcsState) {
+      enableControlInputs(true);
+    }
   }
 
   // Logs stream
@@ -633,6 +798,7 @@ const modalUploadBtn = document.getElementById('modal-upload-btn');
 let selectedMissionId = null;
 
 function handleMissionsList(missions) {
+  activeMissionsList = missions; // Cache locally
   if (!elMissionsContainer) return;
   elMissionsContainer.innerHTML = '';
   
@@ -667,6 +833,10 @@ function handleMissionsList(missions) {
 
 function openMissionParams(missionId) {
   selectedMissionId = missionId;
+  currentActiveMission = activeMissionsList.find(m => m.id === missionId);
+  if (currentActiveMission) {
+    drawMissionOnMobileMap(currentActiveMission);
+  }
   if (paramsModal) {
     paramsModal.classList.add('active');
   }

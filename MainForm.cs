@@ -1276,7 +1276,9 @@ namespace MinimalGCS
                                             pump = activeDrone.Relay1,
                                             lastMessage = activeDrone.LastMessage,
                                             isUploading = activePanel != null && activePanel.IsUploadingWaypoints,
-                                            uploadProgress = activePanel != null ? activePanel.UploadProgressPercent : 0
+                                            uploadProgress = activePanel != null ? activePanel.UploadProgressPercent : 0,
+                                            currentWp = activeDrone.CurrentWp,
+                                            totalWp = activeDrone.TotalWp
                                         };
 
                                         string json = JsonSerializer.Serialize(teleData);
@@ -1354,7 +1356,14 @@ namespace MinimalGCS
                     id = m.Id,
                     name = m.Name,
                     waypointsCount = m.Waypoints.Count,
-                    distance = m.TotalDistanceMeters
+                    distance = m.TotalDistanceMeters,
+                    waypoints = m.Waypoints.Select(wp => new {
+                        index = wp.Index,
+                        command = wp.Command,
+                        lat = wp.Lat,
+                        lon = wp.Lon,
+                        alt = wp.Alt
+                    }).ToList()
                 }).ToList();
 
                 var msg = JsonSerializer.Serialize(new {

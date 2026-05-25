@@ -14,6 +14,31 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        @keyframes flow {
+            to { stroke-dashoffset: -20; }
+        }
+        .running-path-animation {
+            stroke-dasharray: 10 5;
+            animation: flow 1s linear infinite !important;
+        }
+        .glowing-land-marker {
+            background: #dc3545;
+            color: #fff;
+            border: 2px solid #fff;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-weight: 700;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 11px;
+            box-shadow: 0 0 15px rgba(220, 53, 69, 0.8), 0 2px 6px rgba(0,0,0,.5);
+            white-space: nowrap;
+            text-align: center;
+            animation: pulse-glow 1.5s infinite alternate;
+        }
+        @keyframes pulse-glow {
+            from { box-shadow: 0 0 5px rgba(220, 53, 69, 0.5), 0 2px 6px rgba(0,0,0,.5); }
+            to { box-shadow: 0 0 20px rgba(220, 53, 69, 1), 0 2px 6px rgba(0,0,0,.5); }
+        }
     </style>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -148,10 +173,11 @@
     </div>
 
     <script>
-        var map, droneMarker, waypointMarkers = [], pathLine, completedLine, landingMarker;
+        var map, droneMarker, waypointMarkers = [], pathLine, completedLine, landingMarker, runningLine;
         var allWaypoints = []; // {lat, lon, index, cmd, marker}
         var userInteracting = false, userTimer = null;
         var missionComplete = false;
+        var currentModeName = "STANDBY";
 
         // Telemetry caching for continuous calculations
         var latestDroneLat = 0, latestDroneLon = 0, latestHeading = 0;
@@ -225,7 +251,8 @@
             L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 22, maxNativeZoom: 20 }).addTo(map);
             droneMarker = L.marker([22.5600287, 72.9202776], { icon: droneIcon }).addTo(map);
             pathLine = L.polyline([], { color: '#fd7e14', weight: 3, opacity: 0.7, dashArray: '8 4' }).addTo(map);
-            completedLine = L.polyline([], { color: '#2e7d32', weight: 24, opacity: 0.4, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+            completedLine = L.polyline([], { color: '#28a745', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+            runningLine = L.polyline([], { className: 'running-path-animation', color: '#ffc107', weight: 4, opacity: 0.9 }).addTo(map);
  
             // Detect user interaction to free map
             map.on('mousedown', function() { userInteracting = true; clearTimeout(userTimer); });
@@ -541,23 +568,95 @@
             // Draw continuous green completed line path
             completedLine.setLatLngs(completedCoords);
 
+            // Compute remaining path coordinates starting from the drone position
+            var remainingCoords = [];
+            if (currentSegmentIndex >= 0) {
+                if (latestDroneLat !== 0 && latestDroneLon !== 0) {
+                    remainingCoords.push([latestDroneLat, latestDroneLon]);
+                }
+                remainingCoords.push([segments[currentSegmentIndex].to.lat, segments[currentSegmentIndex].to.lon]);
+                for (var i = currentSegmentIndex + 1; i < segments.length; i++) {
+                    remainingCoords.push([segments[i].to.lat, segments[i].to.lon]);
+                }
+            } else if (currentWp === 0 && allWaypoints.length > 0) {
+                // Not started: remaining path is the entire mission path
+                for (var i = 0; i < allWaypoints.length; i++) {
+                    remainingCoords.push([allWaypoints[i].lat, allWaypoints[i].lon]);
+                }
+            }
+            pathLine.setLatLngs(remainingCoords);
+
+            // Handle RTL, LAND, or mission complete behaviors
+            var modeUpper = (currentModeName || "").toUpperCase();
+            var isLandingOrRtl = (modeUpper === "LAND" || modeUpper === "RTL" || percent >= 100);
+
+            // Color and fade waypoint markers dynamically
+            for (var i = 0; i < allWaypoints.length; i++) {
+                var wp = allWaypoints[i];
+                var isTakeoff = (wp.cmd == 22 || wp.index == 1);
+                var isLand = (wp.cmd == 21 || wp.cmd == 20);
+                var label = isTakeoff ? 'H' : (isLand ? 'L' : wp.index);
+                
+                var col = isTakeoff ? '#007bff' : (isLand ? '#dc3545' : '#888');
+                if (wp.cmd == 16) {
+                    col = wp.index <= currentWp ? '#28a745' : '#fd7e14';
+                }
+                wp.marker.setIcon(createWpIcon(label, col));
+                
+                // Reduce opacity to 0.3 for other waypoints if landing/RTL is triggered
+                if (isLandingOrRtl) {
+                    wp.marker.setOpacity(0.3);
+                } else {
+                    wp.marker.setOpacity(1.0);
+                }
+            }
+
+            // Target landing/touchdown location calculation
+            var landingTarget = null;
+            for (var i = 0; i < allWaypoints.length; i++) {
+                if (allWaypoints[i].cmd === 21) { // LAND command
+                    landingTarget = [allWaypoints[i].lat, allWaypoints[i].lon];
+                    break;
+                }
+            }
+            if (!landingTarget && allWaypoints.length > 0) {
+                landingTarget = [allWaypoints[0].lat, allWaypoints[0].lon]; // Default to Home
+            }
+
+            // Animate glowing running line to touchdown point
+            if (isLandingOrRtl && latestDroneLat !== 0 && latestDroneLon !== 0 && landingTarget) {
+                runningLine.setLatLngs([
+                    [latestDroneLat, latestDroneLon],
+                    landingTarget
+                ]);
+                
+                if (!landingMarker) {
+                    landingMarker = L.marker(landingTarget, {
+                        icon: L.divIcon({
+                            html: '<div class="glowing-land-marker">LANDING ZONE</div>',
+                            className: 'leaflet-div-icon',
+                            iconSize: [100, 24],
+                            iconAnchor: [50, 12]
+                        })
+                    }).addTo(map);
+                } else {
+                    landingMarker.setLatLng(landingTarget);
+                }
+            } else {
+                runningLine.setLatLngs([]);
+                if (landingMarker && percent < 100) {
+                    map.removeLayer(landingMarker);
+                    landingMarker = null;
+                }
+            }
+
             // Estimate time remaining using groundSpeed (fallback to cruise 5m/s)
             var speed = groundSpeed > 0.5 ? groundSpeed : 5.0; 
             var etaSec = remainingDist / speed;
             var etaStr = etaSec > 60 ? Math.floor(etaSec / 60) + "m " + Math.round(etaSec % 60) + "s" : Math.round(etaSec) + " sec";
 
-            // Check mission complete
-            if (percent >= 100 && allWaypoints.length > 0) {
+            if (percent >= 100) {
                 missionComplete = true;
-                if (!landingMarker) {
-                    var last = allWaypoints[allWaypoints.length - 1];
-                    landingMarker = L.marker([last.lat, last.lon], {
-                        icon: L.divIcon({
-                            html: '<div style="background:#dc3545;color:#fff;border:2px solid #fff;border-radius:4px;padding:2px 6px;font-weight:700;font-family:Segoe UI,sans-serif;font-size:10px;box-shadow:0 2px 6px rgba(0,0,0,.5);white-space:nowrap;">LANDING</div>',
-                            iconSize: [60, 20], iconAnchor: [30, 10]
-                        })
-                    }).addTo(map);
-                }
             }
 
             // Format distance display
@@ -695,6 +794,7 @@
 
         function updateTelemetry(sysId, armed, modeName, alt, maxAlt, batteryPercent, voltage, pumpStr, speed, gpsStatusName, satsCount, hdop, lat, lon, lastMsg, fenceAltMax, fenceRadius, isRelayEnabled, relayStatusText) {
             setConnectedState(true);
+            currentModeName = modeName || "STANDBY";
 
             document.getElementById("ctrl-title").innerText = "DRONE #" + sysId;
             var statusEl = document.getElementById("ctrl-status");

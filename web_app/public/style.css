@@ -1099,3 +1099,91 @@ body.light-mode .spinner {
 .leaflet-marker-icon {
   transition: transform 0.5s linear, top 0.5s linear, left 0.5s linear !important;
 }
+
+/* DYNAMIC RUNNING PATH & GLOW ANIMATIONS */
+@keyframes flow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.running-path-animation {
+  stroke-dasharray: 10 5;
+  animation: flow 1s linear infinite !important;
+}
+.glowing-land-marker {
+  background: var(--danger) !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+  border-radius: 4px !important;
+  padding: 4px 8px !important;
+  font-weight: 700 !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  box-shadow: 0 0 15px var(--danger), 0 2px 6px rgba(0,0,0,.5) !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+  animation: pulse-glow 1.5s infinite alternate !important;
+}
+@keyframes pulse-glow {
+  from { box-shadow: 0 0 5px rgba(239, 68, 68, 0.5), 0 2px 6px rgba(0,0,0,.5); }
+  to { box-shadow: 0 0 20px rgba(239, 68, 68, 1), 0 2px 6px rgba(0,0,0,.5); }
+}
+
+/* HORIZONTAL / LANDSCAPE DYNAMIC GRID PANELS */
+@media (orientation: landscape) {
+  .dashboard-grid {
+    max-width: 100% !important;
+    display: grid !important;
+    grid-template-columns: 1.2fr 1fr !important;
+    gap: 16px !important;
+    padding: 16px !important;
+    overflow-y: auto !important;
+  }
+
+  .system-summary {
+    grid-column: span 2 !important;
+  }
+
+  .telemetry-gauges-section {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+  }
+
+  .map-section {
+    grid-column: 1 !important;
+    grid-row: 2 / span 5 !important;
+    height: 100% !important;
+    min-height: 420px !important;
+  }
+
+  .missions-section {
+    grid-column: 2 !important;
+    grid-row: 3 !important;
+  }
+
+  .pump-section {
+    grid-column: 2 !important;
+    grid-row: 4 !important;
+  }
+
+  .safety-sliders {
+    grid-column: 2 !important;
+    grid-row: 5 !important;
+  }
+
+  .emergency-section {
+    grid-column: 2 !important;
+    grid-row: 6 !important;
+  }
+
+  .gps-details {
+    grid-column: 2 !important;
+    grid-row: 7 !important;
+  }
+
+  .log-section {
+    grid-column: 1 !important;
+    grid-row: 7 !important;
+    margin-top: 16px !important;
+  }
+}
