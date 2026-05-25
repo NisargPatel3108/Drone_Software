@@ -37,11 +37,15 @@ namespace MinimalGCS
         
         // PRIMARY/SECONDARY GCS Relay
         private Label _lblRelayStatus;
+        private Label _lblMobileRelayStatus;
         private CheckBox _chkRelayEnabled;
         private volatile bool _relayActive = true;
         private volatile int _relayTxCount = 0;
         private volatile int _relayRxCount = 0;
         private volatile bool _mpConnected = false;
+        private volatile bool _mobileRelayOnline = false;
+        private volatile int _mobileClientCount = 0;
+        private volatile string _mobileRelayUrl = "wss://agri-titan-relay.onrender.com/ws";
         
         // CENTRAL STATE MANAGER: One dictionary for all drones
         private ConcurrentDictionary<byte, DroneState> _drones = new ConcurrentDictionary<byte, DroneState>();
@@ -82,7 +86,8 @@ namespace MinimalGCS
             _chkRelayEnabled = new CheckBox { Text = "Relay to Mission Planner (Secondary)", AutoSize = true, Location = new Point(160, 6), Font = new Font("Segoe UI", 8.5f), ForeColor = Color.White, Checked = true, BackColor = Color.Transparent };
             _chkRelayEnabled.CheckedChanged += (s, e) => { _relayActive = _chkRelayEnabled.Checked; };
             _lblRelayStatus = new Label { Text = "RELAY: Waiting...", AutoSize = true, Location = new Point(440, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
-            statusBar.Controls.AddRange(new Control[] { lblPrimary, _chkRelayEnabled, _lblRelayStatus });
+            _lblMobileRelayStatus = new Label { Text = "WEB APP: Offline", AutoSize = true, Location = new Point(760, 7), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.Gray };
+            statusBar.Controls.AddRange(new Control[] { lblPrimary, _chkRelayEnabled, _lblRelayStatus, _lblMobileRelayStatus });
             this.Controls.Add(statusBar);
 
             var split = new SplitContainer
@@ -463,6 +468,19 @@ namespace MinimalGCS
             {
                 _lblRelayStatus.Text = "RELAY: Waiting for connection...";
                 _lblRelayStatus.ForeColor = Color.Gray;
+            }
+
+            if (_mobileRelayOnline)
+            {
+                _lblMobileRelayStatus.Text = _mobileClientCount > 0
+                    ? $"WEB APP: Connected ({_mobileClientCount} mobile)"
+                    : "WEB APP: Relay online, no mobile";
+                _lblMobileRelayStatus.ForeColor = _mobileClientCount > 0 ? Color.FromArgb(40, 167, 69) : Color.FromArgb(255, 193, 7);
+            }
+            else
+            {
+                _lblMobileRelayStatus.Text = "WEB APP: Offline";
+                _lblMobileRelayStatus.ForeColor = Color.FromArgb(220, 53, 69);
             }
         } 
 
@@ -1226,6 +1244,7 @@ namespace MinimalGCS
                     }
 
                     wsUrl = NormalizeRelayWebSocketUrl(wsUrl);
+                    _mobileRelayUrl = wsUrl;
                     Uri serverUri = new Uri(wsUrl);
                     
                     ws = new ClientWebSocket();
@@ -1235,6 +1254,8 @@ namespace MinimalGCS
                     _wsClient = ws;
 
                     await ws.ConnectAsync(serverUri, token);
+                    _mobileRelayOnline = true;
+                    _mobileClientCount = 0;
 
                     var regMsg = JsonSerializer.Serialize(new { type = "register", client = "gcs" });
                     byte[] regBytes = System.Text.Encoding.UTF8.GetBytes(regMsg);
@@ -1329,6 +1350,17 @@ namespace MinimalGCS
                                             float height = root.GetProperty("height").GetSingle();
                                             ExecuteMobileLoadMission(missionId, speed, height, ws, token);
                                         }
+                                        else if (msgType == "mobile_status")
+                                        {
+                                            if (root.TryGetProperty("count", out var countProp))
+                                            {
+                                                _mobileClientCount = countProp.GetInt32();
+                                            }
+                                            else if (root.TryGetProperty("connected", out var connectedProp))
+                                            {
+                                                _mobileClientCount = connectedProp.GetBoolean() ? 1 : 0;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1345,6 +1377,8 @@ namespace MinimalGCS
                 {
                     ws?.Dispose();
                     _wsClient = null;
+                    _mobileRelayOnline = false;
+                    _mobileClientCount = 0;
                 }
             }
         }

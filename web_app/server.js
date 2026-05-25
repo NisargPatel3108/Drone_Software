@@ -26,6 +26,16 @@ function isGcsConnected() {
   return !!gcsSocket && gcsSocket.readyState === WebSocket.OPEN;
 }
 
+function sendGcsMobileStatus() {
+  if (!isGcsConnected()) return;
+
+  gcsSocket.send(JSON.stringify({
+    type: 'mobile_status',
+    connected: mobileSockets.size > 0,
+    count: mobileSockets.size
+  }));
+}
+
 // Serve static UI dashboard files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -80,6 +90,7 @@ wss.on('connection', (ws, request) => {
           console.log('C# GCS Connected and Registered.');
 
           ws.send(JSON.stringify({ type: 'registered', client: 'gcs' }));
+          sendGcsMobileStatus();
           
           broadcastToMobiles(JSON.stringify({ type: 'gcs_status', connected: true }));
         } 
@@ -90,6 +101,7 @@ wss.on('connection', (ws, request) => {
             clientType = 'mobile';
             isAuthenticated = true;
             console.log('Mobile Client Authenticated & Registered.');
+            sendGcsMobileStatus();
             
             // Instantly send connection status and last telemetry if available
             ws.send(JSON.stringify({ type: 'gcs_status', connected: isGcsConnected() }));
@@ -140,6 +152,7 @@ wss.on('connection', (ws, request) => {
     } else if (clientType === 'mobile') {
       console.log('Mobile Client Disconnected.');
       mobileSockets.delete(ws);
+      sendGcsMobileStatus();
     }
   });
 });

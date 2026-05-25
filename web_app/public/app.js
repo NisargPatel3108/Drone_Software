@@ -45,6 +45,7 @@ const toggleArrow = document.getElementById('toggle-arrow');
 const indServer = document.getElementById('ind-server');
 const indGcs = document.getElementById('ind-gcs');
 const connectionWarning = document.getElementById('connection-warning');
+const relayDebugLine = document.getElementById('relay-debug-line');
 
 // Telemetry Elements
 const elDroneId = document.getElementById('val-drone-id');
@@ -373,6 +374,7 @@ function connectWebSocket() {
   socket.onopen = () => {
     console.log('Connected to server!');
     indServer.classList.add('online');
+    updateRelayDebug(`WebSocket connected: ${wsUrl}`);
     
     // Register as mobile client
     socket.send(JSON.stringify({
@@ -412,6 +414,7 @@ function connectWebSocket() {
   socket.onclose = () => {
     console.log('Socket disconnected. Reconnecting in 3s...');
     indServer.classList.remove('online');
+    updateRelayDebug(`WebSocket reconnecting: ${wsUrl}`);
     
     // Update warning overlay for Server Offline state
     const warningText = document.querySelector('#connection-warning p');
@@ -431,15 +434,24 @@ async function fetchRelayStatus() {
 
   try {
     const response = await fetch(getRelayStatusUrl(currentWsUrl), { cache: 'no-store' });
-    if (!response.ok) return;
+    if (!response.ok) {
+      updateRelayDebug(`Relay HTTP ${response.status}: ${getRelayStatusUrl(currentWsUrl)}`);
+      return;
+    }
 
     const status = await response.json();
+    updateRelayDebug(`Relay OK | GCS ${status.gcsConnected ? 'ONLINE' : 'OFFLINE'} | Mobile ${status.activeMobileCount || 0}`);
     if (typeof status.gcsConnected === 'boolean') {
       handleGcsStatus(status.gcsConnected);
     }
   } catch (err) {
+    updateRelayDebug(`Relay check failed: ${getRelayStatusUrl(currentWsUrl)}`);
     console.warn('Relay status check failed:', err);
   }
+}
+
+function updateRelayDebug(message) {
+  if (relayDebugLine) relayDebugLine.textContent = message;
 }
 
 function startRelayStatusPolling() {

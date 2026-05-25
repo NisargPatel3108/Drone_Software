@@ -1048,6 +1048,12 @@ body:not(.light-mode) .hud-chip.mode-chip { color: #86efac; }
   color: var(--text-muted);
   line-height: 1.6;
 }
+.relay-debug-line {
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  word-break: break-all;
+}
 
 /* Warning card */
 .warning-card { border-color: rgba(220,38,38,0.25); }
