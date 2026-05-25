@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Agri Titan Mobile Remote</title>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Custom Styling -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="screen active">
+    <div class="glass-card auth-card">
+      <div class="auth-header">
+        <div class="logo-glow"></div>
+        <h1>AGRI TITAN</h1>
+        <h2>SECURE MOBILE REMOTE</h2>
+      </div>
+      <div class="auth-body">
+        <label for="passcode-input">ENTER ACCESS PASSCODE</label>
+        <input type="password" id="passcode-input" placeholder="•••••" maxlength="10">
+        
+        <!-- Server Settings Accordion -->
+        <div class="settings-accordion">
+          <button id="toggle-settings-btn" class="settings-toggle">⚙ SERVER CONFIGURATION <span id="toggle-arrow">▼</span></button>
+          <div id="settings-panel" class="settings-panel">
+            <label for="server-url-input">WEBSOCKET RELAY URL</label>
+            <input type="text" id="server-url-input" placeholder="ws://localhost:8080">
+          </div>
+        </div>
+
+        <button id="auth-btn">SECURE ACCESS</button>
+        <p id="auth-error" class="error-text"></p>
+      </div>
+      <div class="auth-footer">
+        <p>Protected Link Core v1.5.0</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP SCREEN -->
+  <div id="app-screen" class="screen">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-info">
+        <h1>AGRI TITAN <span class="badge badge-glow">MOBILE CORE</span></h1>
+        <div class="connection-indicators">
+          <div class="indicator" id="ind-server">
+            <span class="dot"></span> Server: Online
+          </div>
+          <div class="indicator" id="ind-gcs">
+            <span class="dot"></span> GCS: Offline
+          </div>
+        </div>
+      </div>
+      <div class="header-controls">
+        <button id="theme-btn" title="Toggle Light/Dark Theme">☀️</button>
+        <button id="logout-btn">DISCONNECT</button>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <!-- 1. DRONE SYSTEM STATUS HEADER -->
+      <section class="system-summary glass-card">
+        <div class="summary-item">
+          <span class="label">DRONE ID</span>
+          <span class="value" id="val-drone-id">#--</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">FLIGHT MODE</span>
+          <span class="value mode-highlight" id="val-flight-mode">DISCONNECTED</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">MOTOR STATUS</span>
+          <span class="value status-highlight" id="val-motor-status">STANDBY</span>
+        </div>
+      </section>
+
+      <!-- 2. PRIMARY TELEMETRY GAUGES -->
+      <section class="telemetry-gauges-section">
+        <!-- Battery Ring -->
+        <div class="tele-card glass-card">
+          <div class="tele-label">BATTERY</div>
+          <div class="progress-ring-container">
+            <svg class="progress-ring" width="100" height="100">
+              <circle class="progress-ring-bg" stroke="#1e293b" stroke-width="8" fill="transparent" r="40" cx="50" cy="50"/>
+              <circle class="progress-ring-bar" id="ring-battery" stroke="#10b8a6" stroke-width="8" fill="transparent" r="40" cx="50" cy="50"/>
+            </svg>
+            <div class="ring-value" id="val-battery">--%</div>
+          </div>
+          <div class="tele-sub" id="val-voltage">--.- V</div>
+        </div>
+
+        <!-- Altitude Card -->
+        <div class="tele-card glass-card">
+          <div class="tele-label">ALTITUDE</div>
+          <div class="progress-ring-container">
+            <svg class="progress-ring" width="100" height="100">
+              <circle class="progress-ring-bg" stroke="#1e293b" stroke-width="8" fill="transparent" r="40" cx="50" cy="50"/>
+              <circle class="progress-ring-bar" id="ring-alt" stroke="#8b5cf6" stroke-width="8" fill="transparent" r="40" cx="50" cy="50"/>
+            </svg>
+            <div class="ring-value" id="val-alt">--.-m</div>
+          </div>
+          <div class="tele-sub" id="val-max-alt">Max: --.-m</div>
+        </div>
+
+        <!-- Speed Card -->
+        <div class="tele-card glass-card">
+          <div class="tele-label">SPEED</div>
+          <div class="progress-ring-container">
+            <svg class="progress-ring" width="100" height="100">
+              <circle class="progress-ring-bg" stroke="#1e293b" stroke-width="8" fill="transparent" r="40" cx="50" cy="50"/>
+              <circle class="progress-ring-bar" id="ring-speed" stroke="#3b82f6" stroke-width="8" fill="transparent" r="40" cx="50" cy="50"/>
+            </svg>
+            <div class="ring-value" id="val-speed">--.-m/s</div>
+          </div>
+          <div class="tele-sub" id="val-heading">Hdg: --.-°</div>
+        </div>
+      </section>
+
+      <!-- 3. MAP VIEW -->
+      <section class="map-section glass-card">
+        <div id="map"></div>
+      </section>
+
+      <!-- 4. PUMP CONTROL SWITCH -->
+      <section class="pump-section glass-card">
+        <div class="pump-info">
+          <h2>AGRICULTURAL PUMP</h2>
+          <p id="pump-sub-text">PUMP STATUS: UNKNOWN</p>
+        </div>
+        <div class="toggle-container">
+          <input type="checkbox" id="pump-toggle" disabled>
+          <label for="pump-toggle" class="toggle-slider"></label>
+        </div>
+      </section>
+
+      <!-- 5. CRITICAL ACTION SAFETY SLIDERS -->
+      <section class="safety-sliders glass-card">
+        <h2>FLIGHT OPERATIONS</h2>
+        
+        <!-- Slide to ARM -->
+        <div class="slide-container" id="slide-arm-container">
+          <div class="slide-bg">
+            <span class="slide-text">>>> SLIDE TO ARM SYSTEM >>></span>
+            <div class="slide-handle" id="slide-arm-handle"></div>
+          </div>
+        </div>
+
+        <!-- Slide to START MISSION -->
+        <div class="slide-container disabled" id="slide-mission-container">
+          <div class="slide-bg">
+            <span class="slide-text">>>> SLIDE TO START MISSION >>></span>
+            <div class="slide-handle" id="slide-mission-handle"></div>
+          </div>
+        </div>
+
+        <!-- Immediate Actions -->
+        <div class="action-buttons-grid">
+          <button id="btn-rtl" class="btn btn-warning" disabled>HOLD TO RETURN (RTL)</button>
+          <button id="btn-land" class="btn btn-danger" disabled>HOLD TO LAND NOW</button>
+        </div>
+      </section>
+
+      <!-- 6. HIGH-RISK SWIPE TO DISARM -->
+      <section class="emergency-section glass-card">
+        <div class="slide-container emergency" id="slide-disarm-container">
+          <div class="slide-bg">
+            <span class="slide-text">>>> EMERGENCY DISARM >>></span>
+            <div class="slide-handle" id="slide-disarm-handle"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7. GPS & SATELLITE DETAILS -->
+      <section class="gps-details glass-card">
+        <div class="detail-item">
+          <span class="lbl">GPS QUALITY</span>
+          <span class="val" id="val-gps-status">--</span>
+        </div>
+        <div class="detail-item">
+          <span class="lbl">SATELLITES</span>
+          <span class="val" id="val-sats">--</span>
+        </div>
+        <div class="detail-item">
+          <span class="lbl">HDOP</span>
+          <span class="val" id="val-hdop">--</span>
+        </div>
+      </section>
+
+      <!-- 8. FLIGHT LOG STREAM -->
+      <section class="log-section glass-card">
+        <h2>AUTOPILOT STATUSTEXT</h2>
+        <ul id="log-list" class="log-list">
+          <li class="log-item system">System initialized. Awaiting connection.</li>
+        </ul>
+      </section>
+    </main>
+
+    <!-- Overlay Warning (when disconnected) -->
+    <div id="connection-warning" class="connection-overlay active">
+      <div class="warning-dialog">
+        <div class="warning-icon">!</div>
+        <h2>GCS LINK INACTIVE</h2>
+        <p>Laptop GCS application is offline. Verify desktop Agri-Titan GCS is running and connected to a drone.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

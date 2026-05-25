@@ -1,0 +1,13 @@
+{
+  "name": "agri-titan-mobile-relay",
+  "version": "1.0.0",
+  "description": "Unified WebSocket relay and static host for Agri Titan mobile controller",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.16.0"
+  }
+}
