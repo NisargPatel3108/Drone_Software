@@ -1215,7 +1215,7 @@ namespace MinimalGCS
                             string readUrl = File.ReadAllText(configPath).Trim();
                             if (!string.IsNullOrEmpty(readUrl))
                             {
-                                wsUrl = readUrl;
+                                wsUrl = NormalizeRelayWebSocketUrl(readUrl);
                             }
                         }
                         catch { }
@@ -1225,6 +1225,7 @@ namespace MinimalGCS
                         try { File.WriteAllText(configPath, wsUrl); } catch { }
                     }
 
+                    wsUrl = NormalizeRelayWebSocketUrl(wsUrl);
                     Uri serverUri = new Uri(wsUrl);
                     
                     ws = new ClientWebSocket();
@@ -1346,6 +1347,32 @@ namespace MinimalGCS
                     _wsClient = null;
                 }
             }
+        }
+
+        private static string NormalizeRelayWebSocketUrl(string relayUrl)
+        {
+            string url = (relayUrl ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return "wss://agri-titan-relay.onrender.com/ws";
+            }
+
+            if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                url = "wss://" + url.Substring("https://".Length);
+            }
+            else if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                url = "ws://" + url.Substring("http://".Length);
+            }
+            else if (!url.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) && !url.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            {
+                bool isLocal = url.Contains("localhost", StringComparison.OrdinalIgnoreCase) || url.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+                url = (isLocal ? "ws://" : "wss://") + url;
+            }
+
+            url = url.TrimEnd('/');
+            return url.EndsWith("/ws", StringComparison.OrdinalIgnoreCase) ? url : url + "/ws";
         }
 
         private void SendMissionsListToMobile(ClientWebSocket ws, CancellationToken token)

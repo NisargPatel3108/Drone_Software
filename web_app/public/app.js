@@ -1,8 +1,19 @@
 // STATE & CONFIGURATION
 let socket = null;
+let reconnectTimer = null;
+let relayStatusTimer = null;
+let currentWsUrl = "";
 let lastGcsState = false;
 let passcode = localStorage.getItem('agri_titan_passcode') || "";
-let customServerUrl = localStorage.getItem('agri_titan_server_url') || "wss://agri-titan-relay.onrender.com";
+// Default server URL behavior:
+// - If the UI is hosted *together* with the relay (recommended), leave this empty to use same-origin `/ws`.
+// - If the UI is hosted as static-only (e.g. Netlify), set a full relay URL in Server Settings (or keep the legacy Render default).
+const legacyCloudRelay = "wss://agri-titan-relay.onrender.com";
+const inferredDefaultRelay =
+  (window.location.hostname.includes("netlify.app") || window.location.hostname.includes("github.io"))
+    ? legacyCloudRelay
+    : "";
+let customServerUrl = getInitialServerUrl();
 let isArmedGlobal = false;
 let droneMarker = null;
 let mapInstance = null;
@@ -310,30 +321,51 @@ function updateDroneLocationOnMap(lat, lon, heading) {
 }
 
 // 3. WEBSOCKET CONTROLLER
-function connectWebSocket() {
-  let wsUrl = "";
-  
-  if (customServerUrl) {
-    wsUrl = customServerUrl;
-    // Format custom URL to ensure correct protocol (ws:// or wss://)
-    if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
-      const isHttps = window.location.protocol === 'https:';
-      // If it looks like a secure domain or if the current page is secure, use wss
-      if (wsUrl.includes('onrender.com') || wsUrl.includes('railway.app') || isHttps) {
-        wsUrl = 'wss://' + wsUrl;
-      } else {
-        wsUrl = 'ws://' + wsUrl;
-      }
-    }
-    // Ensure path ends with /ws for upgrade handling
-    if (!wsUrl.endsWith('/ws')) {
-      wsUrl = wsUrl.replace(/\/$/, '') + '/ws';
-    }
-  } else {
-    // Default fallback to self-host
+function getInitialServerUrl() {
+  const savedUrl = (localStorage.getItem('agri_titan_server_url') || "").trim();
+  const isStaticHost = window.location.hostname.includes("netlify.app") || window.location.hostname.includes("github.io");
+
+  if (!savedUrl) return inferredDefaultRelay;
+
+  if (isStaticHost && (savedUrl.includes("netlify.app") || savedUrl.includes("localhost") || savedUrl.includes("127.0.0.1"))) {
+    localStorage.setItem('agri_titan_server_url', legacyCloudRelay);
+    return legacyCloudRelay;
+  }
+
+  return savedUrl;
+}
+
+function normalizeRelayUrl(inputUrl) {
+  let wsUrl = (inputUrl || "").trim();
+
+  if (!wsUrl) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     wsUrl = `${protocol}//${window.location.host}/ws`;
   }
+
+  if (wsUrl.startsWith('http://')) wsUrl = 'ws://' + wsUrl.slice(7);
+  if (wsUrl.startsWith('https://')) wsUrl = 'wss://' + wsUrl.slice(8);
+
+  if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+    const isHttps = window.location.protocol === 'https:';
+    wsUrl = (wsUrl.includes('localhost') || wsUrl.includes('127.0.0.1')) && !isHttps ? 'ws://' + wsUrl : 'wss://' + wsUrl;
+  }
+
+  return wsUrl.replace(/\/$/, '').endsWith('/ws') ? wsUrl.replace(/\/$/, '') : wsUrl.replace(/\/$/, '') + '/ws';
+}
+
+function getRelayStatusUrl(wsUrl) {
+  return wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://').replace(/\/ws$/, '/status');
+}
+
+function connectWebSocket() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  const wsUrl = normalizeRelayUrl(customServerUrl);
+  currentWsUrl = wsUrl;
   
   console.log(`Connecting to WebSocket: ${wsUrl}`);
   socket = new WebSocket(wsUrl);
@@ -348,6 +380,9 @@ function connectWebSocket() {
       client: 'mobile',
       passcode: passcode
     }));
+
+    fetchRelayStatus();
+    startRelayStatusPolling();
   };
   
   socket.onmessage = (event) => {
@@ -378,6 +413,7 @@ function connectWebSocket() {
   socket.onclose = () => {
     console.log('Socket disconnected. Reconnecting in 3s...');
     indServer.classList.remove('online');
+    stopRelayStatusPolling();
     
     // Update warning overlay for Server Offline state
     const warningText = document.querySelector('#connection-warning p');
@@ -388,8 +424,36 @@ function connectWebSocket() {
     }
     
     handleGcsStatus(false);
-    setTimeout(connectWebSocket, 3000);
+    reconnectTimer = setTimeout(connectWebSocket, 3000);
   };
+}
+
+async function fetchRelayStatus() {
+  if (!currentWsUrl) return;
+
+  try {
+    const response = await fetch(getRelayStatusUrl(currentWsUrl), { cache: 'no-store' });
+    if (!response.ok) return;
+
+    const status = await response.json();
+    if (typeof status.gcsConnected === 'boolean') {
+      handleGcsStatus(status.gcsConnected);
+    }
+  } catch (err) {
+    console.warn('Relay status check failed:', err);
+  }
+}
+
+function startRelayStatusPolling() {
+  stopRelayStatusPolling();
+  relayStatusTimer = setInterval(fetchRelayStatus, 2500);
+}
+
+function stopRelayStatusPolling() {
+  if (relayStatusTimer) {
+    clearInterval(relayStatusTimer);
+    relayStatusTimer = null;
+  }
 }
 
 function handleGcsStatus(connected) {
@@ -411,7 +475,7 @@ function handleGcsStatus(connected) {
       const warningTitle = document.querySelector('#connection-warning .overlay-title');
       if (warningTitle) warningTitle.textContent = "AWAITING LAPTOP GCS LINK";
       if (warningText) {
-        warningText.innerHTML = "Connected to relay server! Waiting for laptop GCS.<br><br>1. Open <b>relay_config.txt</b> in your GCS folder.<br>2. Enter: <b>wss://agri-titan-relay.onrender.com/ws</b><br>3. Run Agri-Titan GCS on your laptop.";
+        warningText.innerHTML = `Connected to relay server! Waiting for laptop GCS.<br><br>1. Open <b>relay_config.txt</b> in your GCS folder.<br>2. Enter: <b>${currentWsUrl || normalizeRelayUrl(customServerUrl)}</b><br>3. Run Agri-Titan GCS on your laptop.`;
       }
     } else {
       const warningText = document.querySelector('#connection-warning .overlay-msg');

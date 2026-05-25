@@ -4,15 +4,27 @@ const WebSocket = require('ws');
 const path = require('path');
 
 const app = express();
+// Enable CORS for all routes to allow web app connections from any origin
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  next();
+});
 const port = process.env.PORT || 8080;
 const PASSCODE = process.env.RELAY_PASSCODE || "12345";
 
 // Cache for last telemetry state
 let lastTelemetry = null;
+let lastGcsSeenAt = null;
 
 // Categorized clients
 let gcsSocket = null;
 const mobileSockets = new Set();
+
+function isGcsConnected() {
+  return !!gcsSocket && gcsSocket.readyState === WebSocket.OPEN;
+}
 
 // Serve static UI dashboard files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -20,9 +32,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Simple status endpoint for sanity check
 app.get('/status', (req, res) => {
   res.json({
-    gcsConnected: !!gcsSocket,
+    ok: true,
+    gcsConnected: isGcsConnected(),
     activeMobileCount: mobileSockets.size,
-    hasTelemetry: !!lastTelemetry
+    hasTelemetry: !!lastTelemetry,
+    lastGcsSeenAt
   });
 });
 
@@ -55,12 +69,18 @@ wss.on('connection', (ws, request) => {
       // 1. REGISTRATION PHASE
       if (data.type === 'register') {
         if (data.client === 'gcs') {
-          // Register GCS (No password required for local GCS client by default, or verify token)
+          if (gcsSocket && gcsSocket !== ws && gcsSocket.readyState === WebSocket.OPEN) {
+            try { gcsSocket.close(1000, 'Replaced by a new GCS connection'); } catch { }
+          }
+
           gcsSocket = ws;
           clientType = 'gcs';
+          isAuthenticated = true;
+          lastGcsSeenAt = new Date().toISOString();
           console.log('C# GCS Connected and Registered.');
+
+          ws.send(JSON.stringify({ type: 'registered', client: 'gcs' }));
           
-          // Notify mobile clients GCS is online
           broadcastToMobiles(JSON.stringify({ type: 'gcs_status', connected: true }));
         } 
         else if (data.client === 'mobile') {
@@ -72,7 +92,7 @@ wss.on('connection', (ws, request) => {
             console.log('Mobile Client Authenticated & Registered.');
             
             // Instantly send connection status and last telemetry if available
-            ws.send(JSON.stringify({ type: 'gcs_status', connected: !!gcsSocket }));
+            ws.send(JSON.stringify({ type: 'gcs_status', connected: isGcsConnected() }));
             if (lastTelemetry) {
               ws.send(JSON.stringify(lastTelemetry));
             }
@@ -87,6 +107,7 @@ wss.on('connection', (ws, request) => {
 
       // 2. BIDIRECTIONAL ROUTING PHASE
       if (clientType === 'gcs') {
+        lastGcsSeenAt = new Date().toISOString();
         // Cache last telemetry state for new mobile connections
         if (data.type === 'telemetry') {
           lastTelemetry = data;
@@ -97,7 +118,7 @@ wss.on('connection', (ws, request) => {
       else if (clientType === 'mobile' && isAuthenticated) {
         // Generically relay all authenticated mobile client messages (commands, load_mission, request_missions) to GCS
         console.log(`Relaying Mobile Client Message: ${data.type}`);
-        if (gcsSocket && gcsSocket.readyState === WebSocket.OPEN) {
+        if (isGcsConnected()) {
           gcsSocket.send(JSON.stringify(data));
         } else {
           ws.send(JSON.stringify({ type: 'error', message: 'GCS Unavailable. Verify desktop application is running.' }));
@@ -111,9 +132,11 @@ wss.on('connection', (ws, request) => {
   ws.on('close', () => {
     if (clientType === 'gcs') {
       console.log('C# GCS Client Disconnected.');
-      gcsSocket = null;
-      lastTelemetry = null;
-      broadcastToMobiles(JSON.stringify({ type: 'gcs_status', connected: false }));
+      if (gcsSocket === ws) {
+        gcsSocket = null;
+        lastTelemetry = null;
+        broadcastToMobiles(JSON.stringify({ type: 'gcs_status', connected: false }));
+      }
     } else if (clientType === 'mobile') {
       console.log('Mobile Client Disconnected.');
       mobileSockets.delete(ws);
@@ -126,6 +149,8 @@ function broadcastToMobiles(msg) {
   for (const client of mobileSockets) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg);
+    } else {
+      mobileSockets.delete(client);
     }
   }
 }
