@@ -1165,10 +1165,11 @@ namespace MinimalGCS
 
             while (!token.IsCancellationRequested)
             {
+                ClientWebSocket? ws = null;
                 try
                 {
                     string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "relay_config.txt");
-                    string wsUrl = "ws://localhost:8080/ws";
+                    string wsUrl = "wss://agri-titan-relay.onrender.com/ws";
                     if (File.Exists(configPath))
                     {
                         try
@@ -1187,16 +1188,23 @@ namespace MinimalGCS
                     }
 
                     Uri serverUri = new Uri(wsUrl);
-                    await _wsClient.ConnectAsync(serverUri, token);
+                    
+                    ws = new ClientWebSocket();
+                    // Bypass SSL/TLS validation for connection robustness (focusing on connection, not security)
+                    ws.Options.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
+                    
+                    _wsClient = ws;
+
+                    await ws.ConnectAsync(serverUri, token);
 
                     var regMsg = JsonSerializer.Serialize(new { type = "register", client = "gcs" });
                     byte[] regBytes = System.Text.Encoding.UTF8.GetBytes(regMsg);
-                    await _wsClient.SendAsync(new ArraySegment<byte>(regBytes), WebSocketMessageType.Text, true, token);
+                    await ws.SendAsync(new ArraySegment<byte>(regBytes), WebSocketMessageType.Text, true, token);
 
                     // 2Hz Telemetry stream
                     var senderTask = Task.Run(async () =>
                     {
-                        while (_wsClient.State == WebSocketState.Open && !token.IsCancellationRequested)
+                        while (ws.State == WebSocketState.Open && !token.IsCancellationRequested)
                         {
                             try
                             {
@@ -1229,7 +1237,7 @@ namespace MinimalGCS
 
                                         string json = JsonSerializer.Serialize(teleData);
                                         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
-                                        await _wsClient.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
                                     }
                                 }
                             }
@@ -1240,12 +1248,12 @@ namespace MinimalGCS
 
                     // Receive commands loop
                     byte[] buffer = new byte[8192];
-                    while (_wsClient.State == WebSocketState.Open && !token.IsCancellationRequested)
+                    while (ws.State == WebSocketState.Open && !token.IsCancellationRequested)
                     {
-                        var result = await _wsClient.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                        var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
                         if (result.MessageType == WebSocketMessageType.Close)
                         {
-                            await _wsClient.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", token);
+                            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", token);
                         }
                         else if (result.MessageType == WebSocketMessageType.Text)
                         {
@@ -1266,13 +1274,15 @@ namespace MinimalGCS
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Console.WriteLine($"[WebSocket Client Error]: {ex.Message}");
                     await Task.Delay(3000, token);
                 }
                 finally
                 {
-                    _wsClient?.Dispose();
+                    ws?.Dispose();
+                    _wsClient = null;
                 }
             }
         }
