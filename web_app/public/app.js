@@ -2,7 +2,7 @@
 let socket = null;
 let lastGcsState = false;
 let passcode = localStorage.getItem('agri_titan_passcode') || "";
-let customServerUrl = localStorage.getItem('agri_titan_server_url') || "";
+let customServerUrl = localStorage.getItem('agri_titan_server_url') || "wss://agri-titan-relay.onrender.com";
 let isArmedGlobal = false;
 let droneMarker = null;
 let mapInstance = null;
