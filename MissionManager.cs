@@ -26,6 +26,8 @@ namespace MinimalGCS
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Name { get; set; } = "New Mission";
         public string Category { get; set; } = "Pesticide";
+        public float FlightAltitude { get; set; } = 5.0f;
+        public float DroneSpeed { get; set; } = 5.0f;
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public DateTime? LastUsed { get; set; }
         public List<WaypointItem> Waypoints { get; set; } = new List<WaypointItem>();

@@ -75,7 +75,7 @@ namespace MinimalGCS
 
         private void SetupAgriUI()
         {
-            this.Text = "AGRI-TITAN GCS v1.7.2 — PRIMARY";
+            this.Text = "AGRI-TITAN GCS v1.7.3 — PRIMARY";
             this.Size = new Size(1340, 780);
             this.BackColor = Color.FromArgb(30, 30, 30);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -1300,7 +1300,22 @@ namespace MinimalGCS
                                             isUploading = activePanel != null && activePanel.IsUploadingWaypoints,
                                             uploadProgress = activePanel != null ? activePanel.UploadProgressPercent : 0,
                                             currentWp = activeDrone.CurrentWp,
-                                            totalWp = activeDrone.TotalWp
+                                            totalWp = activeDrone.TotalWp,
+                                            activeMission = activePanel != null && activePanel.ActiveMission != null ? new {
+                                                id = activePanel.ActiveMission.Id,
+                                                name = activePanel.ActiveMission.Name,
+                                                altitude = activePanel.ActiveMission.FlightAltitude,
+                                                speed = activePanel.ActiveMission.DroneSpeed,
+                                                waypointsCount = activePanel.ActiveMission.Waypoints.Count,
+                                                distance = activePanel.ActiveMission.TotalDistanceMeters,
+                                                waypoints = activePanel.ActiveMission.Waypoints.Select(wp => new {
+                                                    index = wp.Index,
+                                                    command = wp.Command,
+                                                    lat = wp.Lat,
+                                                    lon = wp.Lon,
+                                                    alt = wp.Alt
+                                                }).ToList()
+                                            } : null
                                         };
 
                                         string json = JsonSerializer.Serialize(teleData);
@@ -1416,6 +1431,8 @@ namespace MinimalGCS
                 var missionsList = MissionManager.GetMissions().Select(m => new {
                     id = m.Id,
                     name = m.Name,
+                    altitude = m.FlightAltitude,
+                    speed = m.DroneSpeed,
                     waypointsCount = m.Waypoints.Count,
                     distance = m.TotalDistanceMeters,
                     waypoints = m.Waypoints.Select(wp => new {
@@ -1464,6 +1481,8 @@ namespace MinimalGCS
                             wp.Alt = height;
                         }
                     }
+                    mission.FlightAltitude = height;
+                    mission.DroneSpeed = speed;
 
                     this.Invoke((Action)(() =>
                     {
@@ -1482,6 +1501,7 @@ namespace MinimalGCS
 
                             // 3. Upload mission silently
                             panel.UploadMission(mission, silent: true);
+                            SendMissionLoadedToMobile(mission, ws, token);
                         }
                     }));
                 }
@@ -1490,6 +1510,44 @@ namespace MinimalGCS
             {
                 Console.WriteLine($"[WebSocket Mobile Load Mission Error]: {ex.Message}");
             }
+        }
+
+        private void SendMissionLoadedToMobile(Mission mission, ClientWebSocket ws, CancellationToken token)
+        {
+            try
+            {
+                var msg = JsonSerializer.Serialize(new {
+                    type = "mission_loaded",
+                    mission = new {
+                        id = mission.Id,
+                        name = mission.Name,
+                        altitude = mission.FlightAltitude,
+                        speed = mission.DroneSpeed,
+                        waypointsCount = mission.Waypoints.Count,
+                        distance = mission.TotalDistanceMeters,
+                        waypoints = mission.Waypoints.Select(wp => new {
+                            index = wp.Index,
+                            command = wp.Command,
+                            lat = wp.Lat,
+                            lon = wp.Lon,
+                            alt = wp.Alt
+                        }).ToList()
+                    }
+                });
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(msg);
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        if (ws.State == WebSocketState.Open)
+                        {
+                            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                        }
+                    }
+                    catch { }
+                });
+            }
+            catch { }
         }
 
         private void ExecuteMobileCommand(string cmd)
@@ -1538,6 +1596,13 @@ namespace MinimalGCS
                                         activeDrone.AddLog($"MOBILE START MISSION ERROR: {ex.Message}");
                                     }
                                 });
+                                break;
+                            case "PAUSE":
+                                activeDrone.ResumeWp = activeDrone.CurrentWp;
+                                panel.SendSetMode(16);
+                                break;
+                            case "RESUME":
+                                panel.SendSetMode(3);
                                 break;
                             case "PUMP_ON":
                                 panel.SendCmd(181, 0, 0);

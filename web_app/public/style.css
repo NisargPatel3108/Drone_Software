@@ -961,6 +961,25 @@ body:not(.light-mode) .hud-chip.mode-chip { color: #86efac; }
   transition: opacity 0.2s;
 }
 .btn-load-mission:active { opacity: 0.8; }
+.active-mission-card {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(22,163,74,0.24);
+  border-radius: var(--radius-sm);
+  background: rgba(22,163,74,0.06);
+}
+.active-mission-title {
+  color: var(--primary);
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+.active-mission-meta {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
 
 
 /* ── FLIGHT LOG ─────────────────────────────────────────────── */

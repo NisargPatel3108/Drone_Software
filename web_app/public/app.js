@@ -4,6 +4,7 @@ let reconnectTimer = null;
 let relayStatusTimer = null;
 let currentWsUrl = "";
 let lastGcsState = false;
+let lastMissionRequestAt = 0;
 let passcode = localStorage.getItem('agri_titan_passcode') || "";
 let userRequestedLogout = false;
 let reconnectDelayMs = 2000;
@@ -411,6 +412,7 @@ function connectRelay() {
       client: 'mobile',
       passcode: passcode
     }));
+    socket.send(JSON.stringify({ type: 'request_missions' }));
 
     fetchRelayStatus();
   };
@@ -428,6 +430,12 @@ function connectRelay() {
       }
       else if (data.type === 'missions_list') {
         handleMissionsList(data.missions);
+      }
+      else if (data.type === 'mission_loaded') {
+        currentActiveMission = data.mission;
+        renderActiveMissionCard(currentActiveMission, 'Uploaded to drone');
+        drawMissionOnMobileMap(currentActiveMission);
+        addAutopilotLog(`MISSION LOADED: ${currentActiveMission.name}`);
       }
       else if (data.type === 'error') {
         authError.textContent = data.message.toUpperCase();
@@ -511,6 +519,7 @@ function handleGcsStatus(connected, message) {
     if (warningTitle) warningTitle.textContent = "GCS LINK ACTIVE";
     if (warningText) warningText.innerHTML = `Connected through <b>${currentWsUrl || normalizeRelayUrl(customServerUrl)}</b>`;
     enableControlInputs(true);
+    requestMissionsList();
   } else {
     indGcs.classList.add('offline');
     indGcs.classList.remove('online');
@@ -531,6 +540,8 @@ function enableControlInputs(enabled) {
   elPumpToggle.disabled = !enabled;
   document.getElementById('btn-rtl').disabled = !enabled;
   document.getElementById('btn-land').disabled = !enabled;
+  document.getElementById('btn-pause').disabled = !enabled;
+  document.getElementById('btn-resume').disabled = !enabled;
   
   if (enabled) {
     slideArm.classList.remove('disabled');
@@ -580,6 +591,12 @@ function resetTelemetryDisplay() {
 // 4. TELEMETRY DISPLAY HANDLERS
 function handleTelemetryUpdate(tele) {
   isArmedGlobal = tele.isArmed;
+  const altitude = Number(tele.alt || 0);
+  const maxAltitude = Number(tele.maxAlt || 0);
+  const speed = Number(tele.speed || 0);
+  const heading = Number(tele.heading || 0);
+  const voltage = Number(tele.voltage || 0);
+  const hdop = Number(tele.hdop || 0);
 
   // Drone ID
   if (elDroneId) elDroneId.textContent = `#${tele.sysId}`;
@@ -614,7 +631,7 @@ function handleTelemetryUpdate(tele) {
 
   // Battery
   if (elBattery) elBattery.textContent = `${tele.battery}%`;
-  if (elVoltage) elVoltage.textContent = `${tele.voltage.toFixed(1)}V`;
+  if (elVoltage) elVoltage.textContent = `${voltage.toFixed(1)}V`;
   if (elBattFill) {
     elBattFill.style.width = `${Math.min(tele.battery, 100)}%`;
     elBattFill.className = 'batt-fill';
@@ -623,17 +640,17 @@ function handleTelemetryUpdate(tele) {
   }
 
   // Altitude
-  if (elAlt) elAlt.textContent = `${tele.alt.toFixed(1)}m`;
-  if (elMaxAlt) elMaxAlt.textContent = `${tele.maxAlt.toFixed(1)}m`;
+  if (elAlt) elAlt.textContent = `${altitude.toFixed(1)}m`;
+  if (elMaxAlt) elMaxAlt.textContent = `${maxAltitude.toFixed(1)}m`;
 
   // Speed & Heading
-  if (elSpeed) elSpeed.textContent = `${tele.speed.toFixed(1)}m/s`;
-  if (elHeading) elHeading.textContent = `${tele.heading.toFixed(0)}°`;
+  if (elSpeed) elSpeed.textContent = `${speed.toFixed(1)}m/s`;
+  if (elHeading) elHeading.textContent = `${heading.toFixed(0)}°`;
 
   // GPS
   if (elGpsStatus) elGpsStatus.textContent = `GPS ${tele.gpsStatus}`;
   if (elSats) elSats.textContent = tele.sats;
-  if (elHdop) elHdop.textContent = tele.hdop.toFixed(1);
+  if (elHdop) elHdop.textContent = hdop.toFixed(1);
 
   // Pump Status
   if (elPumpToggle) {
@@ -653,6 +670,13 @@ function handleTelemetryUpdate(tele) {
     if (elMapProgressPct) elMapProgressPct.textContent = `${pct}%`;
     if (elMapProgressBar) elMapProgressBar.style.width = `${pct}%`;
     if (elMapProgressDetail) elMapProgressDetail.textContent = `${tele.currentWp} / ${tele.totalWp} waypoints`;
+  }
+
+  if (tele.activeMission) {
+    const shouldRedraw = !currentActiveMission || currentActiveMission.id !== tele.activeMission.id;
+    currentActiveMission = tele.activeMission;
+    renderActiveMissionCard(currentActiveMission, tele.modeName === 'AUTO' ? 'Running' : 'Loaded');
+    if (shouldRedraw) drawMissionOnMobileMap(currentActiveMission);
   }
 
   // Auto-detect currently running GCS mission if not set but we have activeMissionsList
@@ -821,6 +845,16 @@ setupHoldButton('btn-land', () => {
   addAutopilotLog("COMMAND SENT: IMMEDIATE LAND");
 });
 
+document.getElementById('btn-pause').addEventListener('click', () => {
+  sendCommand('PAUSE');
+  addAutopilotLog("COMMAND SENT: PAUSE MISSION");
+});
+
+document.getElementById('btn-resume').addEventListener('click', () => {
+  sendCommand('RESUME');
+  addAutopilotLog("COMMAND SENT: RESUME MISSION");
+});
+
 function setupHoldButton(btnId, onComplete) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
@@ -881,6 +915,15 @@ function sendCommand(cmdName) {
   }
 }
 
+function requestMissionsList() {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    const now = Date.now();
+    if (now - lastMissionRequestAt < 5000) return;
+    lastMissionRequestAt = now;
+    socket.send(JSON.stringify({ type: 'request_missions' }));
+  }
+}
+
 // 9. LIGHT/DARK THEME CONTROLLER
 const themeBtn = document.getElementById('theme-btn');
 let currentTheme = localStorage.getItem('agri_titan_theme') || 'light';
@@ -910,6 +953,8 @@ const modalSpeedInput = document.getElementById('modal-speed');
 const modalHeightInput = document.getElementById('modal-height');
 const modalCancelBtn = document.getElementById('modal-cancel-btn');
 const modalUploadBtn = document.getElementById('modal-upload-btn');
+const modalMissionName = document.getElementById('modal-mission-name');
+const activeMissionCard = document.getElementById('active-mission-card');
 
 let selectedMissionId = null;
 
@@ -930,10 +975,12 @@ function handleMissionsList(missions) {
   missions.forEach(m => {
     const card = document.createElement('div');
     card.className = 'mission-item-card';
+    const altitude = Number(m.altitude || getMissionDefaultAltitude(m)).toFixed(1);
+    const speed = Number(m.speed || 5).toFixed(1);
     card.innerHTML = `
       <div class="mission-details">
         <span class="mission-name">${m.name}</span>
-        <span class="mission-sub">${m.waypointsCount} WPs | ${Math.round(m.distance)}m total</span>
+        <span class="mission-sub">${m.waypointsCount} WPs | Alt ${altitude}m | Speed ${speed}m/s | ${Math.round(m.distance)}m</span>
       </div>
       <button class="btn-load-mission">QUICK LOAD</button>
     `;
@@ -951,6 +998,10 @@ function openMissionParams(missionId) {
   selectedMissionId = missionId;
   currentActiveMission = activeMissionsList.find(m => m.id === missionId);
   if (currentActiveMission) {
+    modalSpeedInput.value = Number(currentActiveMission.speed || 5).toFixed(1);
+    modalHeightInput.value = Number(currentActiveMission.altitude || getMissionDefaultAltitude(currentActiveMission)).toFixed(1);
+    if (modalMissionName) modalMissionName.textContent = currentActiveMission.name;
+    renderActiveMissionCard(currentActiveMission, 'Preview');
     drawMissionOnMobileMap(currentActiveMission);
   }
   if (paramsModal) {
@@ -977,8 +1028,29 @@ if (modalUploadBtn) {
         height: height
       }));
       addAutopilotLog(`REQUESTING LAPTOP UPLOAD: Speed=${speed}m/s Alt=${height}m`);
+      renderActiveMissionCard({ ...currentActiveMission, speed, altitude: height }, 'Uploading');
     }
     
     if (paramsModal) paramsModal.classList.remove('active');
   };
+}
+
+function getMissionDefaultAltitude(mission) {
+  if (!mission || !mission.waypoints) return 5;
+  const altitudes = mission.waypoints
+    .filter(w => (w.command === 16 || w.command === 22) && Number(w.alt) > 0)
+    .map(w => Number(w.alt));
+  return altitudes.length ? Math.max(...altitudes) : 5;
+}
+
+function renderActiveMissionCard(mission, status) {
+  if (!activeMissionCard || !mission) return;
+  const altitude = Number(mission.altitude || getMissionDefaultAltitude(mission)).toFixed(1);
+  const speed = Number(mission.speed || 5).toFixed(1);
+  const waypoints = mission.waypointsCount || (mission.waypoints ? mission.waypoints.length : 0);
+  const distance = Math.round(mission.distance || 0);
+  activeMissionCard.innerHTML = `
+    <div class="active-mission-title">${mission.name}</div>
+    <div class="active-mission-meta">${status} · ${waypoints} WPs · Alt ${altitude}m · Speed ${speed}m/s · ${distance}m</div>
+  `;
 }

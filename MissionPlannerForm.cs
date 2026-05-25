@@ -263,9 +263,23 @@ namespace MinimalGCS
                         var waypoints = MissionManager.ParseWaypointFile(ofd.FileName);
                         if (waypoints.Count > 0)
                         {
+                            string missionName = PromptText("Mission Name", "Enter mission name:", Path.GetFileNameWithoutExtension(ofd.FileName));
+                            if (string.IsNullOrWhiteSpace(missionName)) missionName = Path.GetFileNameWithoutExtension(ofd.FileName);
+
+                            float defaultAlt = waypoints.Where(w => w.Command == 16 || w.Command == 22).Select(w => w.Alt).DefaultIfEmpty(5.0f).Max();
+                            float flightAltitude = PromptFloat("Flight Altitude", "Enter flight altitude (meters):", defaultAlt <= 0 ? 5.0f : defaultAlt);
+                            float droneSpeed = PromptFloat("Drone Speed", "Enter drone speed (m/s):", 5.0f);
+
+                            foreach (var wp in waypoints)
+                            {
+                                if (wp.Command == 16 || wp.Command == 22) wp.Alt = flightAltitude;
+                            }
+
                             var mission = new Mission
                             {
-                                Name = Path.GetFileNameWithoutExtension(ofd.FileName),
+                                Name = missionName,
+                                FlightAltitude = flightAltitude,
+                                DroneSpeed = droneSpeed,
                                 Waypoints = waypoints
                             };
                             MissionManager.SaveMission(mission);
@@ -298,7 +312,7 @@ namespace MinimalGCS
                 };
 
                 var lblName = new Label { Text = m.Name, Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = Color.White, AutoSize = true, Location = new Point(10, 10), Enabled = false };
-                var lblStats = new Label { Text = $"WPs: {m.Waypoints.Count(w => w.Command == 16)}  |  {(m.TotalDistanceMeters/1000):F2} km", Font = new Font("Segoe UI", 8.5f), ForeColor = Color.LightGray, AutoSize = true, Location = new Point(10, 32), Enabled = false };
+                var lblStats = new Label { Text = $"WPs: {m.Waypoints.Count(w => w.Command == 16)} | Alt: {m.FlightAltitude:F1}m | Spd: {m.DroneSpeed:F1}m/s | {(m.TotalDistanceMeters/1000):F2} km", Font = new Font("Segoe UI", 8.5f), ForeColor = Color.LightGray, AutoSize = true, Location = new Point(10, 32), Enabled = false };
 
                 var btnDelete = new Button
                 {
@@ -385,6 +399,36 @@ namespace MinimalGCS
                     this.DialogResult = DialogResult.OK;
                     this.Close();
                 }
+            }
+        }
+
+        private string PromptText(string title, string label, string defaultValue)
+        {
+            using (var form = new Form { Text = title, Width = 420, Height = 160, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
+            {
+                var lbl = new Label { Text = label, Left = 15, Top = 18, Width = 360 };
+                var input = new TextBox { Text = defaultValue, Left = 15, Top = 45, Width = 370 };
+                var ok = new Button { Text = "OK", Left = 220, Top = 82, Width = 80, DialogResult = DialogResult.OK };
+                var cancel = new Button { Text = "Cancel", Left = 305, Top = 82, Width = 80, DialogResult = DialogResult.Cancel };
+                form.Controls.AddRange(new Control[] { lbl, input, ok, cancel });
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+                return form.ShowDialog(this) == DialogResult.OK ? input.Text.Trim() : defaultValue;
+            }
+        }
+
+        private float PromptFloat(string title, string label, float defaultValue)
+        {
+            using (var form = new Form { Text = title, Width = 420, Height = 160, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
+            {
+                var lbl = new Label { Text = label, Left = 15, Top = 18, Width = 360 };
+                var input = new NumericUpDown { DecimalPlaces = 1, Increment = 0.5M, Minimum = 0.5M, Maximum = 200M, Value = (decimal)Math.Clamp(defaultValue, 0.5f, 200f), Left = 15, Top = 45, Width = 120 };
+                var ok = new Button { Text = "OK", Left = 220, Top = 82, Width = 80, DialogResult = DialogResult.OK };
+                var cancel = new Button { Text = "Cancel", Left = 305, Top = 82, Width = 80, DialogResult = DialogResult.Cancel };
+                form.Controls.AddRange(new Control[] { lbl, input, ok, cancel });
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+                return form.ShowDialog(this) == DialogResult.OK ? (float)input.Value : defaultValue;
             }
         }
 

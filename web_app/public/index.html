@@ -215,6 +215,14 @@
 
         <!-- Quick Action Buttons -->
         <div class="quick-actions-grid">
+          <button id="btn-pause" class="quick-btn rtl-btn" disabled>
+            <span class="qb-icon">Ⅱ</span>
+            <span class="qb-label">PAUSE</span>
+          </button>
+          <button id="btn-resume" class="quick-btn rtl-btn" disabled>
+            <span class="qb-icon">▶</span>
+            <span class="qb-label">RESUME</span>
+          </button>
           <button id="btn-rtl" class="quick-btn rtl-btn" disabled>
             <span class="qb-icon">🏠</span>
             <span class="qb-label">HOLD · RTL</span>
@@ -234,6 +242,10 @@
         </div>
         <div id="missions-container" class="missions-container">
           <p class="empty-text">Connect to laptop GCS to load missions...</p>
+        </div>
+        <div id="active-mission-card" class="active-mission-card">
+          <div class="active-mission-title">No mission loaded</div>
+          <div class="active-mission-meta">Select a saved mission for route preview.</div>
         </div>
       </div>
 
@@ -283,7 +295,7 @@
         <div class="params-header">
           <div class="params-icon">🚁</div>
           <h2 class="overlay-title">MISSION PARAMETERS</h2>
-          <p class="overlay-msg">Set flight parameters before uploading to drone</p>
+          <p class="overlay-msg" id="modal-mission-name">Set flight parameters before uploading to drone</p>
         </div>
         <div class="params-fields">
           <div class="param-field">
@@ -331,6 +343,6 @@
 
   </div><!-- end #app-screen -->
 
-  <script src="app.js?v=20260525-1945"></script>
+  <script src="app.js?v=20260525-2030"></script>
 </body>
 </html>

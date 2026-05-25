@@ -16,6 +16,7 @@ const PASSCODE = process.env.RELAY_PASSCODE || "12345";
 
 // Cache for last telemetry state
 let lastTelemetry = null;
+let lastMissionsList = null;
 let lastGcsSeenAt = null;
 
 // Categorized clients
@@ -108,6 +109,9 @@ wss.on('connection', (ws, request) => {
             if (lastTelemetry) {
               ws.send(JSON.stringify(lastTelemetry));
             }
+            if (lastMissionsList) {
+              ws.send(JSON.stringify(lastMissionsList));
+            }
           } else {
             console.log('Mobile Client connection rejected: Invalid Passcode.');
             ws.send(JSON.stringify({ type: 'error', message: 'Auth Failed: Invalid Passcode' }));
@@ -123,6 +127,9 @@ wss.on('connection', (ws, request) => {
         // Cache last telemetry state for new mobile connections
         if (data.type === 'telemetry') {
           lastTelemetry = data;
+        }
+        if (data.type === 'missions_list') {
+          lastMissionsList = data;
         }
         // Generically relay all GCS messages (telemetry, missions_list, status updates) to mobiles
         broadcastToMobiles(JSON.stringify(data));
