@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta charset="utf-8" />
+    <title>Agri-Drone GCS Map</title>
+    <style>
+        html, body, #map { width:100%; height:100%; margin:0; padding:0; background:#1e1e1e; }
+        .leaflet-div-icon { background:transparent !important; border:none !important; }
+        .leaflet-marker-icon {
+            transition: transform 0.5s linear, top 0.5s linear, left 0.5s linear;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes flow {
+            to { stroke-dashoffset: -20; }
+        }
+        .running-path-animation {
+            stroke-dasharray: 10 5;
+            animation: flow 1s linear infinite !important;
+        }
+        .glowing-land-marker {
+            background: #dc3545;
+            color: #fff;
+            border: 2px solid #fff;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-weight: 700;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 11px;
+            box-shadow: 0 0 15px rgba(220, 53, 69, 0.8), 0 2px 6px rgba(0,0,0,.5);
+            white-space: nowrap;
+            text-align: center;
+            animation: pulse-glow 1.5s infinite alternate;
+        }
+        @keyframes pulse-glow {
+            from { box-shadow: 0 0 5px rgba(220, 53, 69, 0.5), 0 2px 6px rgba(0,0,0,.5); }
+            to { box-shadow: 0 0 20px rgba(220, 53, 69, 1), 0 2px 6px rgba(0,0,0,.5); }
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <!-- LEFT SIDE FLOATING CONTROL PANEL -->
+    <div id="control-hud" style="position:absolute;top:12px;left:12px;z-index:1000;background:rgba(15,15,15,0.92);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:16px;width:370px;color:#fff;font-family:'Segoe UI',sans-serif;box-shadow:0 12px 40px rgba(0,0,0,0.7);max-height:calc(100vh - 40px);overflow-y:auto;box-sizing:border-box;">
+        <!-- WAITING FOR DRONE COVER -->
+        <div id="ctrl-waiting-cover" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:340px;text-align:center;color:#aaa;box-sizing:border-box;">
+            <div style="border: 3px solid rgba(255,255,255,0.1);border-top:3px solid #007bff;border-radius:50%;width:36px;height:36px;animation:spin 1s linear infinite;margin-bottom:18px;"></div>
+            <span style="font-weight:700;font-size:13px;letter-spacing:0.5px;color:#fff;text-transform:uppercase;">Waiting for connection...</span>
+            <span style="font-size:11px;color:#666;margin-top:6px;">Power on drone and connect telemetry receiver</span>
+        </div>
+
+        <!-- ACTUAL CONTROLS (Initially Hidden) -->
+        <div id="ctrl-actual-content" style="display:none;">
+            <!-- TAB BUTTONS -->
+            <div style="display:flex;background:rgba(255,255,255,0.06);border-radius:8px;padding:3px;margin-bottom:14px;box-sizing:border-box;">
+                <button id="tab-mission-btn" onclick="switchTab('mission')" style="flex:1;background:#222;color:#fff;border:none;border-radius:6px;padding:8px 10px;font-weight:700;font-size:11px;cursor:pointer;outline:none;text-transform:uppercase;transition:all 0.2s;">Mission Control</button>
+                <button id="tab-advanced-btn" onclick="switchTab('advanced')" style="flex:1;background:transparent;color:#999;border:none;border-radius:6px;padding:8px 10px;font-weight:700;font-size:11px;cursor:pointer;outline:none;text-transform:uppercase;transition:all 0.2s;">Advanced Settings</button>
+            </div>
+
+            <!-- TAB 1: MISSION CONTROL -->
+            <div id="tab-mission">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span id="ctrl-title" style="font-weight:700;font-size:13px;color:#28a745;letter-spacing:.5px;">DRONE #1</span>
+                    <span id="ctrl-status" style="font-size:16px;font-weight:900;color:#007bff;text-transform:uppercase;">READY</span>
+                </div>
+                
+                <!-- Real-time Telemetry Stats -->
+                <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px;font-size:11px;margin-bottom:14px;line-height:1.5;border:1px solid rgba(255,255,255,0.05);">
+                    <div id="ctrl-telemetry" style="font-weight:600;color:#ddd;margin-bottom:6px;">ALT: -- | BATT: -- | MODE: -- | PUMP: -- | SPD: --</div>
+                    <div id="ctrl-gps" style="color:#aaa;">GPS: -- | Sats: -- | HDOP: --<br/>Lat: -- | Lng: --</div>
+                    <div id="ctrl-msg" style="color:#FF8C00;font-style:italic;margin-top:6px;border-top:1px solid rgba(255,255,255,0.05);padding-top:4px;word-break:break-all;">Initializing...</div>
+                </div>
+
+                <!-- Primary Buttons -->
+                <button onclick="triggerAction('START')" style="width:100%;background:#28a745;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:8px;text-transform:uppercase;outline:none;transition:background 0.2s;">Start Mission</button>
+                
+                <div style="display:flex;gap:8px;margin-bottom:8px;">
+                    <button onclick="triggerAction('PAUSE')" style="flex:1;background:#ffc107;color:#111;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:11px;cursor:pointer;text-transform:uppercase;outline:none;transition:background 0.2s;">Pause</button>
+                    <button onclick="triggerAction('RESUME')" style="flex:1;background:#17a2b8;color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:11px;cursor:pointer;text-transform:uppercase;outline:none;transition:background 0.2s;">Resume</button>
+                </div>
+
+                <button onclick="triggerAction('RTL')" style="width:100%;background:#6c757d;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:8px;text-transform:uppercase;outline:none;transition:background 0.2s;">Return Home (RTL)</button>
+
+                <div style="display:flex;gap:8px;margin-bottom:12px;">
+                    <button onclick="triggerAction('LAND')" style="flex:1;background:#dc3545;color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:11px;cursor:pointer;text-transform:uppercase;outline:none;transition:background 0.2s;">Land Now</button>
+                    <button onclick="triggerAction('PUMP')" id="pump-toggle-btn" style="flex:1;background:#6c757d;color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:11px;cursor:pointer;text-transform:uppercase;outline:none;transition:background 0.2s;">Pump: OFF</button>
+                </div>
+
+                <button onclick="triggerAction('MISSION_MANAGER')" style="width:100%;background:#007bff;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:16px;text-transform:uppercase;outline:none;transition:background 0.2s;">Mission Manager</button>
+
+                <!-- SWIPE TO DISARM -->
+                <div id="swipe-container" style="background:#dc3545;border-radius:8px;height:44px;position:relative;overflow:hidden;user-select:none;">
+                    <div id="swipe-text" style="position:absolute;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;pointer-events:none;z-index:1;">>>> SWIPE TO DISARM >>></div>
+                    <div id="swipe-handle" style="width:70px;height:40px;background:#fff;border-radius:6px;position:absolute;top:2px;left:2px;cursor:pointer;z-index:2;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>
+                </div>
+                
+                <div id="ctrl-warning" style="display:none;color:#dc3545;font-weight:700;font-size:11px;text-align:center;margin-top:8px;"></div>
+            </div>
+
+            <!-- TAB 2: ADVANCED SETTINGS -->
+            <div id="tab-advanced" style="display:none;">
+                <div style="font-weight:700;font-size:13px;color:#aaa;margin-bottom:12px;letter-spacing:.5px;">DRONE GEOFENCE CONFIG</div>
+                
+                <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;margin-bottom:14px;cursor:pointer;user-select:none;">
+                    <input type="checkbox" id="geo-enabled" style="width:16px;height:16px;accent-color:#28a745;" />
+                    <span>Enable Geo-Fence Failsafe</span>
+                </label>
+                
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:11px;color:#999;margin-bottom:4px;display:flex;justify-content:space-between;">
+                        <span>Max Altitude:</span>
+                        <span><input type="number" id="geo-alt" value="30" min="5" max="200" style="background:#222;color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 6px;width:60px;font-size:11px;font-weight:700;text-align:center;outline:none;" /> m</span>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:18px;">
+                    <div style="font-size:11px;color:#999;margin-bottom:4px;display:flex;justify-content:space-between;">
+                        <span>Max Radius:</span>
+                        <span><input type="number" id="geo-radius" value="100" min="10" max="2000" style="background:#222;color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 6px;width:60px;font-size:11px;font-weight:700;text-align:center;outline:none;" /> m</span>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:8px;margin-top:14px;">
+                    <button onclick="triggerAction('REFRESH_FENCE')" style="flex:1;background:#6c757d;color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:11px;cursor:pointer;text-transform:uppercase;outline:none;transition:background 0.2s;">Refresh Config</button>
+                    <button onclick="applyFenceConfig()" style="flex:1;background:#28a745;color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:11px;cursor:pointer;text-transform:uppercase;outline:none;transition:background 0.2s;">Apply Config</button>
+                </div>
+                
+                <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px;box-sizing:border-box;">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:#aaa;cursor:pointer;user-select:none;">
+                        <input type="checkbox" id="relay-enabled" onchange="toggleRelay(this.checked)" style="width:14px;height:14px;accent-color:#007bff;" checked />
+                        <span>Relay to MP (Secondary)</span>
+                    </label>
+                    <div id="relay-status-text" style="font-size:9.5px;color:#888;margin-top:4px;font-family:monospace;">RELAY: Waiting for connection...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT SIDE MISSION PROGRESS HUD -->
+    <div id="progress-hud" style="position:absolute;top:12px;right:12px;z-index:1000;background:rgba(15,15,15,0.88);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;width:250px;color:#fff;font-family:'Segoe UI',sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.6);box-sizing:border-box;">
+        <!-- WAITING FOR DRONE PROGRESS COVER -->
+        <div id="progress-waiting-cover" style="display:flex;align-items:center;justify-content:center;height:100px;color:#888;font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase;text-align:center;">
+            Waiting for connection...
+        </div>
+
+        <!-- ACTUAL CONTENT (Initially Hidden) -->
+        <div id="progress-actual-content" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-weight:700;font-size:13px;color:#FFD700;letter-spacing:.5px;">AGRI-TITAN</span>
+                <span id="hud-status" style="font-size:9px;font-weight:700;background:#007bff;color:#fff;padding:2px 8px;border-radius:10px;text-transform:uppercase;">READY</span>
+            </div>
+            <div style="font-size:11px;color:#999;margin-bottom:4px;display:flex;justify-content:space-between;">
+                <span>Mission Progress</span><span id="progress-text" style="color:#28a745;font-weight:700;">0%</span>
+            </div>
+            <div style="background:rgba(255,255,255,0.08);height:5px;border-radius:3px;margin-bottom:10px;overflow:hidden;">
+                <div id="progress-bar" style="background:linear-gradient(90deg,#28a745,#00e676);width:0%;height:100%;transition:width .4s;border-radius:3px;"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 6px;font-size:10px;border-top:1px solid rgba(255,255,255,0.06);padding-top:8px;">
+                <div><span style="color:#888;">Work WPs</span><br/><span id="checkpoint-text" style="font-weight:700;font-size:11.5px;color:#eee;">0 / 0</span></div>
+                <div><span style="color:#888;">Drone Speed</span><br/><span id="speed-text" style="font-weight:700;font-size:11.5px;color:#00bcd4;">0.0 m/s</span></div>
+                <div><span style="color:#888;">Completed</span><br/><span id="dist-done" style="font-weight:700;font-size:11.5px;color:#28a745;">0 m</span></div>
+                <div><span style="color:#888;">Remaining</span><br/><span id="dist-left" style="font-weight:700;font-size:11.5px;color:#fd7e14;">0 m</span></div>
+                <div><span style="color:#888;">Total Distance</span><br/><span id="dist-total" style="font-weight:700;font-size:11.5px;color:#FFD700;">0 m</span></div>
+                <div><span style="color:#888;">Est. Remaining</span><br/><span id="time-text" style="font-weight:700;font-size:11.5px;color:#a855f7;">--</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var map, droneMarker, waypointMarkers = [], pathLine, completedLine, landingMarker, runningLine;
+        var allWaypoints = []; // {lat, lon, index, cmd, marker}
+        var userInteracting = false, userTimer = null;
+        var missionComplete = false;
+        var currentModeName = "STANDBY";
+
+        // Telemetry caching for continuous calculations
+        var latestDroneLat = 0, latestDroneLon = 0, latestHeading = 0;
+        var lastCurrentWp = 0, lastTotalWp = 0, lastStatusStr = "Ready", lastGroundSpeed = 0;
+
+        // Haversine distance in meters
+        function haversine(lat1, lon1, lat2, lon2) {
+            var R = 6371000;
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // Hexacopter SVG
+        var hexSvg =
+            '<svg width="70" height="70" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">' +
+            '<circle cx="50" cy="50" r="46" fill="none" stroke="#28A745" stroke-width="1" stroke-dasharray="4 3" opacity=".3"/>' +
+            '<line x1="50" y1="50" x2="50" y2="16" stroke="#111" stroke-width="4" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="79.4" y2="33" stroke="#111" stroke-width="4" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="79.4" y2="67" stroke="#111" stroke-width="4" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="50" y2="84" stroke="#111" stroke-width="4" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="20.6" y2="67" stroke="#111" stroke-width="4" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="20.6" y2="33" stroke="#111" stroke-width="4" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="50" y2="16" stroke="#FF4500" stroke-width="1.5" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="79.4" y2="33" stroke="#FF4500" stroke-width="1" stroke-linecap="round"/>' +
+            '<line x1="50" y1="50" x2="20.6" y2="33" stroke="#FF4500" stroke-width="1" stroke-linecap="round"/>' +
+            '<ellipse cx="50" cy="16" rx="11" ry="3" fill="#FF4500" opacity=".45" transform="rotate(0,50,16)"/>' +
+            '<ellipse cx="50" cy="16" rx="11" ry="3" fill="#FF4500" opacity=".45" transform="rotate(90,50,16)"/>' +
+            '<ellipse cx="79.4" cy="33" rx="11" ry="3" fill="#FF4500" opacity=".4" transform="rotate(60,79.4,33)"/>' +
+            '<ellipse cx="79.4" cy="33" rx="11" ry="3" fill="#FF4500" opacity=".4" transform="rotate(150,79.4,33)"/>' +
+            '<ellipse cx="20.6" cy="33" rx="11" ry="3" fill="#FF4500" opacity=".4" transform="rotate(-60,20.6,33)"/>' +
+            '<ellipse cx="20.6" cy="33" rx="11" ry="3" fill="#FF4500" opacity=".4" transform="rotate(30,20.6,33)"/>' +
+            '<ellipse cx="79.4" cy="67" rx="11" ry="3" fill="#ccc" opacity=".35" transform="rotate(-60,79.4,67)"/>' +
+            '<ellipse cx="79.4" cy="67" rx="11" ry="3" fill="#ccc" opacity=".35" transform="rotate(30,79.4,67)"/>' +
+            '<ellipse cx="50" cy="84" rx="11" ry="3" fill="#ccc" opacity=".35" transform="rotate(0,50,84)"/>' +
+            '<ellipse cx="50" cy="84" rx="11" ry="3" fill="#ccc" opacity=".35" transform="rotate(90,50,84)"/>' +
+            '<ellipse cx="20.6" cy="67" rx="11" ry="3" fill="#ccc" opacity=".35" transform="rotate(60,20.6,67)"/>' +
+            '<ellipse cx="20.6" cy="67" rx="11" ry="3" fill="#ccc" opacity=".35" transform="rotate(150,20.6,67)"/>' +
+            '<circle cx="50" cy="16" r="5" fill="#FF4500" stroke="#fff" stroke-width="1.2"/>' +
+            '<circle cx="79.4" cy="33" r="5" fill="#FF4500" stroke="#fff" stroke-width="1.2"/>' +
+            '<circle cx="20.6" cy="33" r="5" fill="#FF4500" stroke="#fff" stroke-width="1.2"/>' +
+            '<circle cx="79.4" cy="67" r="5" fill="#333" stroke="#fff" stroke-width="1.2"/>' +
+            '<circle cx="50" cy="84" r="5" fill="#333" stroke="#fff" stroke-width="1.2"/>' +
+            '<circle cx="20.6" cy="67" r="5" fill="#333" stroke="#fff" stroke-width="1.2"/>' +
+            '<polygon points="42,38 58,38 64,50 58,62 42,62 36,50" fill="#1a1a1a" stroke="#fff" stroke-width="1.5"/>' +
+            '<rect x="43" y="40" width="14" height="18" rx="2" fill="#2a2a2a" stroke="#555" stroke-width=".6"/>' +
+            '<rect x="44.5" y="43" width="11" height="13" rx="1" fill="#00bcd4" opacity=".7"/>' +
+            '<rect x="47" y="38.5" width="6" height="2" rx=".5" fill="#FF4500"/>' +
+            '<path d="M50 4 L44 14 L56 14 Z" fill="#FF4500" stroke="#fff" stroke-width=".8"/>' +
+            '</svg>';
+
+        var droneIcon = L.divIcon({
+            html: '<div id="drone-element" style="transition:transform .15s linear;display:flex;flex-direction:column;align-items:center;width:80px;height:80px;">' +
+                  '<div style="color:#FFD700;background:rgba(10,10,10,.9);font-size:7.5px;font-weight:700;font-family:Segoe UI,sans-serif;padding:1px 5px;border-radius:3px;margin-bottom:1px;border:.5px solid #FFD700;white-space:nowrap;">AGRI-TITAN</div>' +
+                  hexSvg + '</div>',
+            iconSize: [80, 80], iconAnchor: [40, 40]
+        });
+
+        function createWpIcon(n, color) {
+            var bg = color || '#fd7e14';
+            return L.divIcon({
+                html: '<div style="background:' + bg + ';color:#fff;border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:Segoe UI,sans-serif;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.5);">' + n + '</div>',
+                iconSize: [24, 24], iconAnchor: [12, 12]
+            });
+        }
+
+        window.onload = function() {
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([22.5600287, 72.9202776], 17);
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+            L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 22, maxNativeZoom: 20 }).addTo(map);
+            droneMarker = L.marker([22.5600287, 72.9202776], { icon: droneIcon }).addTo(map);
+            pathLine = L.polyline([], { color: '#fd7e14', weight: 3, opacity: 0.7, dashArray: '8 4' }).addTo(map);
+            completedLine = L.polyline([], { color: '#28a745', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+            runningLine = L.polyline([], { className: 'running-path-animation', color: '#ffc107', weight: 4, opacity: 0.9 }).addTo(map);
+ 
+            // Detect user interaction to free map
+            map.on('mousedown', function() { userInteracting = true; clearTimeout(userTimer); });
+            map.on('dragstart', function() { userInteracting = true; clearTimeout(userTimer); });
+            map.on('zoomstart', function() { userInteracting = true; clearTimeout(userTimer); });
+            map.on('mouseup', resetUserTimer);
+            map.on('dragend', resetUserTimer);
+            map.on('zoomend', resetUserTimer);
+
+            initSwipe();
+            setConnectedState(false);
+        };
+
+        function resetUserTimer() {
+            clearTimeout(userTimer);
+            userTimer = setTimeout(function() { userInteracting = false; }, 5000);
+        }
+
+        function updateDrone(lat, lon, heading) {
+            latestDroneLat = lat;
+            latestDroneLon = lon;
+            latestHeading = heading;
+
+            droneMarker.setLatLng([lat, lon]);
+            var el = document.getElementById("drone-element");
+            if (el) el.style.transform = "rotate(" + heading + "deg)";
+            if (!userInteracting && !missionComplete) {
+                map.panTo([lat, lon], { animate: true, duration: 0.5 });
+            }
+
+            // Recalculate and update mission progress continuously
+            if (lastCurrentWp !== undefined && allWaypoints.length > 0) {
+                updateMissionProgress(lastCurrentWp, lastTotalWp, lastStatusStr, lastGroundSpeed);
+            }
+        }
+
+        var sprayPolygon = null;
+
+        function clearWaypoints() {
+            for (var i = 0; i < waypointMarkers.length; i++) map.removeLayer(waypointMarkers[i]);
+            waypointMarkers = []; allWaypoints = [];
+            pathLine.setLatLngs([]); completedLine.setLatLngs([]);
+            if (landingMarker) { map.removeLayer(landingMarker); landingMarker = null; }
+            if (sprayPolygon) { map.removeLayer(sprayPolygon); sprayPolygon = null; }
+            missionComplete = false;
+            updateMissionProgress(0, 0, "Standby", 0);
+        }
+
+        // cmd: 16=WAYPOINT, 22=TAKEOFF, 21=LAND, 20=RTL
+        function addWaypoint(lat, lon, index, cmd) {
+            if (lat == 0 && lon == 0) return;
+            var isWork = (cmd == 16);
+            var isHome = (index == 0);
+            var isTakeoff = (cmd == 22 || index == 1);
+            var isLand = (cmd == 21 || cmd == 20);
+            
+            var color = isHome ? '#28a745' : (isTakeoff ? '#007bff' : (isLand ? '#dc3545' : (isWork ? '#fd7e14' : '#888')));
+            var label = isHome ? 'H' : (isTakeoff ? 'T' : (isLand ? 'L' : index));
+
+            var draggable = isHome || isTakeoff || isLand;
+
+            var m = L.marker([lat, lon], { 
+                icon: createWpIcon(label, color),
+                draggable: draggable
+            }).addTo(map);
+
+            if (draggable) {
+                m.on('drag', function(event) {
+                    var position = event.target.getLatLng();
+                    // Update in our internal list
+                    for (var i = 0; i < allWaypoints.length; i++) {
+                        if (allWaypoints[i].index === index) {
+                            allWaypoints[i].lat = position.lat;
+                            allWaypoints[i].lon = position.lng;
+                            break;
+                        }
+                    }
+                    // Update Takeoff if Home (index 0) is dragged
+                    if (index === 0) {
+                        for (var i = 0; i < allWaypoints.length; i++) {
+                            if (allWaypoints[i].cmd === 22) {
+                                allWaypoints[i].lat = position.lat;
+                                allWaypoints[i].lon = position.lng;
+                                if (allWaypoints[i].marker) {
+                                    allWaypoints[i].marker.setLatLng(position);
+                                }
+                            }
+                        }
+                    }
+
+                    // Update lines
+                    var latlngs = [];
+                    for (var i = 0; i < allWaypoints.length; i++) {
+                        latlngs.push([allWaypoints[i].lat, allWaypoints[i].lon]);
+                    }
+                    pathLine.setLatLngs(latlngs);
+                });
+
+                m.on('dragend', function(event) {
+                    var position = event.target.getLatLng();
+                    triggerAction("UPDATE_WP_COORDS", index + "," + position.lat + "," + position.lng);
+                    drawSprayZone();
+                });
+            }
+
+            waypointMarkers.push(m);
+            allWaypoints.push({ lat: lat, lon: lon, index: index, cmd: cmd, marker: m });
+            pathLine.addLatLng([lat, lon]);
+            if (waypointMarkers.length > 1) map.fitBounds(new L.featureGroup(waypointMarkers).getBounds().pad(0.15));
+        }
+
+        function drawSprayZone() {
+            if (sprayPolygon) map.removeLayer(sprayPolygon);
+            var pts = [];
+            for (var i = 0; i < allWaypoints.length; i++) {
+                if (allWaypoints[i].cmd == 16) {
+                    pts.push([allWaypoints[i].lat, allWaypoints[i].lon]);
+                }
+            }
+            if (pts.length > 2) {
+                sprayPolygon = L.polygon(pts, {color: '#28A745', fillColor: '#28A745', fillOpacity: 0.15, weight: 2, dashArray: '5 5'}).addTo(map);
+            }
+        }
+
+        // Calculate total work segments including TAKEOFF and Return commands to trace the entire mission beautifully
+        function getWorkSegments() {
+            var workWps = [];
+            
+            // 1. Get takeoff or first waypoint
+            var startPoint = null;
+            for (var i = 0; i < allWaypoints.length; i++) {
+                if (allWaypoints[i].cmd == 22) {
+                    startPoint = allWaypoints[i];
+                    break;
+                }
+            }
+            if (!startPoint) {
+                for (var i = 0; i < allWaypoints.length; i++) {
+                    if (allWaypoints[i].index == 0 || allWaypoints[i].index == 1) {
+                        startPoint = allWaypoints[i];
+                        break;
+                    }
+                }
+            }
+            if (startPoint) workWps.push(startPoint);
+            
+            // 2. Add all grid waypoints sequentially
+            for (var i = 0; i < allWaypoints.length; i++) {
+                if (allWaypoints[i].cmd == 16 && allWaypoints[i].lat != 0) {
+                    // Check if already added
+                    var alreadyAdded = false;
+                    for (var j = 0; j < workWps.length; j++) {
+                        if (workWps[j].index === allWaypoints[i].index) {
+                            alreadyAdded = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyAdded) {
+                        workWps.push(allWaypoints[i]);
+                    }
+                }
+            }
+            
+            // 3. Add RTL or LAND point at the end
+            var endPoint = null;
+            for (var i = 0; i < allWaypoints.length; i++) {
+                if (allWaypoints[i].cmd == 20 || allWaypoints[i].cmd == 21) {
+                    endPoint = allWaypoints[i];
+                    break;
+                }
+            }
+            if (endPoint && endPoint.lat != 0) {
+                var alreadyAdded = false;
+                for (var j = 0; j < workWps.length; j++) {
+                    if (workWps[j].index === endPoint.index) {
+                        alreadyAdded = true;
+                        break;
+                    }
+                }
+                if (!alreadyAdded) {
+                    workWps.push(endPoint);
+                }
+            }
+
+            // Ensure sorted by index sequence using classic function
+            workWps.sort(function(a, b) {
+                return a.index - b.index;
+            });
+
+            var segments = [];
+            var totalDist = 0;
+            for (var i = 1; i < workWps.length; i++) {
+                var d = haversine(workWps[i-1].lat, workWps[i-1].lon, workWps[i].lat, workWps[i].lon);
+                totalDist += d;
+                segments.push({ 
+                    from: workWps[i-1], 
+                    to: workWps[i], 
+                    dist: d, 
+                    cumDistBefore: totalDist - d,
+                    cumDistAfter: totalDist, 
+                    targetWpIndex: workWps[i].index 
+                });
+            }
+            return { segments: segments, totalDist: totalDist, workWps: workWps };
+        }
+
+        // speed in m/s from C#
+        function updateMissionProgress(currentWp, totalWpRaw, statusStr, groundSpeed) {
+            lastCurrentWp = currentWp;
+            lastTotalWp = totalWpRaw;
+            lastStatusStr = statusStr;
+            lastGroundSpeed = groundSpeed;
+
+            var h = document.getElementById("hud-status");
+            if (h) {
+                h.innerText = statusStr.toUpperCase();
+                h.style.background = statusStr.toUpperCase().indexOf("ACTIVE") >= 0 ? "#28a745" : statusStr.toUpperCase().indexOf("READY") >= 0 ? "#007bff" : statusStr.toUpperCase().indexOf("LOST") >= 0 ? "#dc3545" : "#fd7e14";
+            }
+
+            var work = getWorkSegments();
+            var totalDist = work.totalDist;
+            var workWps = work.workWps;
+            var segments = work.segments;
+
+            // Continuous progress calculation based on exact drone location vector projection onto the active segment
+            var completedDist = 0;
+            var completedWpCount = 0;
+            var completedCoords = [];
+
+            if (workWps.length > 0) completedCoords.push([workWps[0].lat, workWps[0].lon]);
+
+            var currentSegmentIndex = -1;
+            for (var i = 0; i < segments.length; i++) {
+                if (segments[i].targetWpIndex === currentWp) {
+                    currentSegmentIndex = i;
+                    break;
+                }
+            }
+
+            if (currentSegmentIndex >= 0) {
+                // Drone is actively flying this segment!
+                completedDist = segments[currentSegmentIndex].cumDistBefore;
+                completedWpCount = currentSegmentIndex;
+
+                // Add all previously completed waypoints to green path line
+                for (var i = 0; i < currentSegmentIndex; i++) {
+                    completedCoords.push([segments[i].to.lat, segments[i].to.lon]);
+                }
+
+                // Vector projection of exact drone position onto this active segment
+                var pA = segments[currentSegmentIndex].from;
+                var pB = segments[currentSegmentIndex].to;
+                var droneLat = latestDroneLat || pA.lat;
+                var droneLon = latestDroneLon || pA.lon;
+
+                var dLatAB = pB.lat - pA.lat;
+                var dLonAB = pB.lon - pA.lon;
+                var dLatAP = droneLat - pA.lat;
+                var dLonAP = droneLon - pA.lon;
+
+                var ab2 = dLatAB * dLatAB + dLonAB * dLonAB;
+                var t = ab2 > 0 ? (dLatAP * dLatAB + dLonAP * dLonAB) / ab2 : 0;
+                t = Math.max(0, Math.min(1, t)); // clamp within segment
+
+                completedDist += t * segments[currentSegmentIndex].dist;
+
+                // Continuously trace green completed flight path line up to the exact drone position!
+                if (latestDroneLat !== 0 && latestDroneLon !== 0) {
+                    completedCoords.push([latestDroneLat, latestDroneLon]);
+                }
+            } else {
+                // Standby or between waypoints fallback: simple discrete waypoint progression
+                if (currentWp > 0 && segments.length > 0) {
+                    var lastSeg = segments[segments.length - 1];
+                    if (currentWp >= lastSeg.targetWpIndex) {
+                        completedDist = totalDist;
+                        completedWpCount = workWps.length - 1;
+                        for (var i = 0; i < workWps.length; i++) {
+                            completedCoords.push([workWps[i].lat, workWps[i].lon]);
+                        }
+                    } else {
+                        // Estimate discrete
+                        for (var i = 0; i < segments.length; i++) {
+                            if (segments[i].targetWpIndex <= currentWp) {
+                                completedDist += segments[i].dist;
+                                completedWpCount++;
+                                completedCoords.push([segments[i].to.lat, segments[i].to.lon]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            var remainingDist = totalDist - completedDist;
+            if (remainingDist < 0) remainingDist = 0;
+
+            var percent = totalDist > 0 ? Math.min(Math.round((completedDist / totalDist) * 100), 100) : 0;
+
+            // Color waypoints dynamically: completed=green, pending=orange, non-work=grey
+            for (var i = 0; i < allWaypoints.length; i++) {
+                var wp = allWaypoints[i];
+                var isTakeoff = (wp.cmd == 22 || wp.index == 1);
+                var isLand = (wp.cmd == 21);
+                var label = isTakeoff ? 'H' : (isLand ? 'L' : wp.index);
+                
+                var col = isTakeoff ? '#007bff' : (isLand ? '#dc3545' : '#888');
+                if (wp.cmd == 16) {
+                    col = wp.index <= currentWp ? '#28a745' : '#fd7e14';
+                }
+                wp.marker.setIcon(createWpIcon(label, col));
+            }
+
+            // Draw continuous green completed line path
+            completedLine.setLatLngs(completedCoords);
+
+            // Compute remaining path coordinates starting from the drone position
+            var remainingCoords = [];
+            if (currentSegmentIndex >= 0) {
+                if (latestDroneLat !== 0 && latestDroneLon !== 0) {
+                    remainingCoords.push([latestDroneLat, latestDroneLon]);
+                }
+                remainingCoords.push([segments[currentSegmentIndex].to.lat, segments[currentSegmentIndex].to.lon]);
+                for (var i = currentSegmentIndex + 1; i < segments.length; i++) {
+                    remainingCoords.push([segments[i].to.lat, segments[i].to.lon]);
+                }
+            } else if (currentWp === 0 && allWaypoints.length > 0) {
+                // Not started: remaining path is the entire mission path
+                for (var i = 0; i < allWaypoints.length; i++) {
+                    remainingCoords.push([allWaypoints[i].lat, allWaypoints[i].lon]);
+                }
+            }
+            pathLine.setLatLngs(remainingCoords);
+
+            // Handle RTL, LAND, or mission complete behaviors
+            var modeUpper = (currentModeName || "").toUpperCase();
+            var isLandingOrRtl = (modeUpper === "LAND" || modeUpper === "RTL" || percent >= 100);
+
+            // Color and fade waypoint markers dynamically
+            for (var i = 0; i < allWaypoints.length; i++) {
+                var wp = allWaypoints[i];
+                var isTakeoff = (wp.cmd == 22 || wp.index == 1);
+                var isLand = (wp.cmd == 21 || wp.cmd == 20);
+                var label = isTakeoff ? 'H' : (isLand ? 'L' : wp.index);
+                
+                var col = isTakeoff ? '#007bff' : (isLand ? '#dc3545' : '#888');
+                if (wp.cmd == 16) {
+                    col = wp.index <= currentWp ? '#28a745' : '#fd7e14';
+                }
+                wp.marker.setIcon(createWpIcon(label, col));
+                
+                // Reduce opacity to 0.3 for other waypoints if landing/RTL is triggered
+                if (isLandingOrRtl) {
+                    wp.marker.setOpacity(0.3);
+                } else {
+                    wp.marker.setOpacity(1.0);
+                }
+            }
+
+            // Target landing/touchdown location calculation
+            var landingTarget = null;
+            for (var i = 0; i < allWaypoints.length; i++) {
+                if (allWaypoints[i].cmd === 21) { // LAND command
+                    landingTarget = [allWaypoints[i].lat, allWaypoints[i].lon];
+                    break;
+                }
+            }
+            if (!landingTarget && allWaypoints.length > 0) {
+                landingTarget = [allWaypoints[0].lat, allWaypoints[0].lon]; // Default to Home
+            }
+
+            // Animate glowing running line to touchdown point
+            if (isLandingOrRtl && latestDroneLat !== 0 && latestDroneLon !== 0 && landingTarget) {
+                runningLine.setLatLngs([
+                    [latestDroneLat, latestDroneLon],
+                    landingTarget
+                ]);
+                
+                if (!landingMarker) {
+                    landingMarker = L.marker(landingTarget, {
+                        icon: L.divIcon({
+                            html: '<div class="glowing-land-marker">LANDING ZONE</div>',
+                            className: 'leaflet-div-icon',
+                            iconSize: [100, 24],
+                            iconAnchor: [50, 12]
+                        })
+                    }).addTo(map);
+                } else {
+                    landingMarker.setLatLng(landingTarget);
+                }
+            } else {
+                runningLine.setLatLngs([]);
+                if (landingMarker && percent < 100) {
+                    map.removeLayer(landingMarker);
+                    landingMarker = null;
+                }
+            }
+
+            // Estimate time remaining using groundSpeed (fallback to cruise 5m/s)
+            var speed = groundSpeed > 0.5 ? groundSpeed : 5.0; 
+            var etaSec = remainingDist / speed;
+            var etaStr = etaSec > 60 ? Math.floor(etaSec / 60) + "m " + Math.round(etaSec % 60) + "s" : Math.round(etaSec) + " sec";
+
+            if (percent >= 100) {
+                missionComplete = true;
+            }
+
+            // Format distance display
+            var doneStr = completedDist > 1000 ? (completedDist/1000).toFixed(2) + " km" : Math.round(completedDist) + " m";
+            var leftStr = remainingDist > 1000 ? (remainingDist/1000).toFixed(2) + " km" : Math.round(remainingDist) + " m";
+            var totalStr = totalDist > 1000 ? (totalDist/1000).toFixed(2) + " km" : Math.round(totalDist) + " m";
+
+            document.getElementById("progress-text").innerText = percent + "%";
+            document.getElementById("progress-bar").style.width = percent + "%";
+            document.getElementById("checkpoint-text").innerText = completedWpCount + " / " + (workWps.length > 0 ? (workWps.length - 1) : 0);
+            document.getElementById("time-text").innerText = percent >= 100 ? "DONE" : etaStr;
+            document.getElementById("dist-done").innerText = doneStr;
+            document.getElementById("dist-left").innerText = leftStr;
+            document.getElementById("dist-total").innerText = totalStr;
+            document.getElementById("speed-text").innerText = groundSpeed.toFixed(1) + " m/s";
+        }
+
+        function triggerAction(action, payload) {
+            payload = payload || "";
+            if (window.external) {
+                try {
+                    window.external.TriggerAction(action, payload);
+                } catch(e) {
+                    console.log("Error invoking C# method: " + e);
+                }
+            } else {
+                console.log("C# host bridge not found.");
+            }
+        }
+
+        function switchTab(tab) {
+            var mTab = document.getElementById("tab-mission");
+            var aTab = document.getElementById("tab-advanced");
+            var mBtn = document.getElementById("tab-mission-btn");
+            var aBtn = document.getElementById("tab-advanced-btn");
+
+            if (tab === 'mission') {
+                mTab.style.display = 'block';
+                aTab.style.display = 'none';
+                mBtn.style.background = '#222';
+                mBtn.style.color = '#fff';
+                aBtn.style.background = 'transparent';
+                aBtn.style.color = '#999';
+            } else {
+                mTab.style.display = 'none';
+                aTab.style.display = 'block';
+                mBtn.style.background = 'transparent';
+                mBtn.style.color = '#999';
+                aBtn.style.background = '#222';
+                aBtn.style.color = '#fff';
+            }
+        }
+
+        function initSwipe() {
+            var handle = document.getElementById("swipe-handle");
+            var container = document.getElementById("swipe-container");
+            if (!handle || !container) return;
+
+            var isSwiping = false;
+            var startX = 0;
+            var maxOffset = container.clientWidth - handle.clientWidth - 4;
+
+            handle.onmousedown = function(e) {
+                isSwiping = true;
+                startX = e.clientX - handle.offsetLeft;
+                document.onmousemove = onMouseMove;
+                document.onmouseup = onMouseUp;
+                e.preventDefault();
+            };
+
+            function onMouseMove(e) {
+                if (!isSwiping) return;
+                var offset = e.clientX - startX;
+                if (offset < 2) offset = 2;
+                if (offset > maxOffset) offset = maxOffset;
+                handle.style.left = offset + "px";
+                if (offset >= maxOffset - 8) {
+                    isSwiping = false;
+                    handle.style.left = "2px";
+                    document.onmousemove = null;
+                    document.onmouseup = null;
+                    triggerAction("DISARM");
+                }
+            }
+
+            function onMouseUp() {
+                isSwiping = false;
+                handle.style.left = "2px";
+                document.onmousemove = null;
+                document.onmouseup = null;
+            }
+
+            // Touch events for tablet/mobile
+            handle.ontouchstart = function(e) {
+                isSwiping = true;
+                startX = e.touches[0].clientX - handle.offsetLeft;
+                document.ontouchmove = onTouchMove;
+                document.ontouchend = onTouchEnd;
+                e.preventDefault();
+            };
+
+            function onTouchMove(e) {
+                if (!isSwiping) return;
+                var offset = e.touches[0].clientX - startX;
+                if (offset < 2) offset = 2;
+                if (offset > maxOffset) offset = maxOffset;
+                handle.style.left = offset + "px";
+                if (offset >= maxOffset - 8) {
+                    isSwiping = false;
+                    handle.style.left = "2px";
+                    document.ontouchmove = null;
+                    document.ontouchend = null;
+                    triggerAction("DISARM");
+                }
+            }
+
+            function onTouchEnd() {
+                isSwiping = false;
+                handle.style.left = "2px";
+                document.ontouchmove = null;
+                document.ontouchend = null;
+            }
+        }
+
+        function applyFenceConfig() {
+            var alt = document.getElementById("geo-alt").value;
+            var radius = document.getElementById("geo-radius").value;
+            var enabled = document.getElementById("geo-enabled").checked;
+            triggerAction("APPLY_FENCE", alt + "," + radius + "," + enabled);
+        }
+
+        function toggleRelay(checked) {
+            triggerAction("TOGGLE_RELAY", checked ? "true" : "false");
+        }
+
+        function updateTelemetry(sysId, armed, modeName, alt, maxAlt, batteryPercent, voltage, pumpStr, speed, gpsStatusName, satsCount, hdop, lat, lon, lastMsg, fenceAltMax, fenceRadius, isRelayEnabled, relayStatusText) {
+            setConnectedState(true);
+            currentModeName = modeName || "STANDBY";
+
+            document.getElementById("ctrl-title").innerText = "DRONE #" + sysId;
+            var statusEl = document.getElementById("ctrl-status");
+            if (statusEl) {
+                statusEl.innerText = armed ? "ACTIVE" : "READY";
+                statusEl.style.color = armed ? "#dc3545" : "#007bff";
+            }
+
+            var telemetryText = "ALT: " + alt.toFixed(1) + "m (Max: " + maxAlt.toFixed(1) + "m) | BATT: " + batteryPercent + "% (" + voltage.toFixed(1) + "V)<br/>" +
+                                "MODE: " + modeName + " | PUMP: " + pumpStr + " | SPD: " + speed.toFixed(1) + "m/s";
+            var telEl = document.getElementById("ctrl-telemetry");
+            if (telEl) telEl.innerHTML = telemetryText;
+
+            var gpsText = "GPS: " + gpsStatusName + " (Sats: " + satsCount + " | HDOP: " + hdop.toFixed(1) + ")<br/>" +
+                          "Lat: " + lat.toFixed(7) + " | Lng: " + lon.toFixed(7);
+            var gpsEl = document.getElementById("ctrl-gps");
+            if (gpsEl) gpsEl.innerHTML = gpsText;
+
+            var msgEl = document.getElementById("ctrl-msg");
+            if (msgEl) msgEl.innerText = lastMsg;
+
+            var pumpBtn = document.getElementById("pump-toggle-btn");
+            if (pumpBtn) {
+                pumpBtn.innerText = "PUMP: " + pumpStr;
+                if (pumpStr === "ON") {
+                    pumpBtn.style.background = "#28a745";
+                } else {
+                    pumpBtn.style.background = "#6c757d";
+                }
+            }
+
+            // Sync Geofence numeric fields only if NOT focused
+            var altInput = document.getElementById("geo-alt");
+            var radInput = document.getElementById("geo-radius");
+            var enabledInput = document.getElementById("geo-enabled");
+
+            if (altInput && document.activeElement !== altInput && fenceAltMax > 0) {
+                altInput.value = fenceAltMax;
+            }
+            if (radInput && document.activeElement !== radInput && fenceRadius > 0) {
+                radInput.value = fenceRadius;
+            }
+            if (enabledInput && document.activeElement !== enabledInput) {
+                enabledInput.checked = (fenceAltMax > 0 || fenceRadius > 0);
+            }
+
+            // Sync Relay
+            var relayEnabledInput = document.getElementById("relay-enabled");
+            if (relayEnabledInput && document.activeElement !== relayEnabledInput) {
+                relayEnabledInput.checked = isRelayEnabled;
+            }
+            var relayTextEl = document.getElementById("relay-status-text");
+            if (relayTextEl) {
+                relayTextEl.innerText = relayStatusText;
+                if (relayStatusText.indexOf("DISABLED") !== -1) {
+                    relayTextEl.style.color = "#dc3545";
+                } else if (relayStatusText.indexOf("LISTENING") !== -1) {
+                    relayTextEl.style.color = "#ffc107";
+                } else {
+                    relayTextEl.style.color = "#28a745";
+                }
+            }
+        }
+
+        function setConnectedState(connected) {
+            var ctrlWaiting = document.getElementById("ctrl-waiting-cover");
+            var ctrlContent = document.getElementById("ctrl-actual-content");
+            var progWaiting = document.getElementById("progress-waiting-cover");
+            var progContent = document.getElementById("progress-actual-content");
+
+            if (connected) {
+                if (ctrlWaiting) ctrlWaiting.style.display = "none";
+                if (ctrlContent) ctrlContent.style.display = "block";
+                if (progWaiting) progWaiting.style.display = "none";
+                if (progContent) progContent.style.display = "block";
+            } else {
+                if (ctrlWaiting) ctrlWaiting.style.display = "flex";
+                if (ctrlContent) ctrlContent.style.display = "none";
+                if (progWaiting) progWaiting.style.display = "flex";
+                if (progContent) progContent.style.display = "none";
+            }
+        }
+    </script>
+</body>
+</html>
