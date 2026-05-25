@@ -22,3 +22,9 @@ Release_v*/
 # dotnet local SDK install
 dotnet-sdk-local/
 C:/dotnet-sdk-local/
+
+# Node dependencies
+node_modules/
+web_app/node_modules/
+package-lock.json
+web_app/package-lock.json
