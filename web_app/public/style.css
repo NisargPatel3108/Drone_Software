@@ -129,6 +129,9 @@ html, body {
   width: 100%;
   height: 100%;
 }
+.screen:not(.active) {
+  display: none !important;
+}
 .screen.active {
   display: flex;
   flex-direction: column;
@@ -349,7 +352,6 @@ body:not(.light-mode) .auth-subtitle { color: #4ade80; }
    ══════════════════════════════════════════════════════════════ */
 #app-screen {
   background: var(--bg);
-  display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
