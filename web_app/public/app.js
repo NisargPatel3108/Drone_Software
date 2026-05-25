@@ -68,8 +68,13 @@ const slideArm = document.getElementById('slide-arm-container');
 const slideMission = document.getElementById('slide-mission-container');
 const slideDisarm = document.getElementById('slide-disarm-container');
 
-// Progress Rings Geometry (R = 40 => Circumference = 2 * PI * 40 = 251.2)
-const RING_CIRCUMFERENCE = 251.2;
+// NEW UI HUD Elements
+const elBattFill = document.getElementById('batt-fill-bar');
+const elFlightOpsBadge = document.getElementById('flight-ops-badge');
+const elMapProgressHud = document.getElementById('map-progress-hud');
+const elMapProgressPct = document.getElementById('map-progress-pct');
+const elMapProgressBar = document.getElementById('map-progress-bar');
+const elMapProgressDetail = document.getElementById('map-progress-detail');
 
 // 1. INITIALIZATION & AUTHENTICATION
 if (passcode) {
@@ -401,28 +406,29 @@ function handleGcsStatus(connected) {
   if (connected) {
     indGcs.classList.remove('offline');
     indGcs.classList.add('online');
-    indGcs.innerHTML = '<span class="dot"></span> GCS: Online';
+    indGcs.innerHTML = '<span class="pill-dot"></span><span>GCS</span>';
     connectionWarning.classList.remove('active');
-    
-    // Enable controls
     enableControlInputs(true);
   } else {
     indGcs.classList.add('offline');
     indGcs.classList.remove('online');
-    indGcs.innerHTML = '<span class="dot"></span> GCS: Offline';
+    indGcs.innerHTML = '<span class="pill-dot"></span><span>GCS</span>';
     connectionWarning.classList.add('active');
     
-    // If the server is connected but GCS is offline, show helpful GCS setup steps
     if (socket && socket.readyState === WebSocket.OPEN) {
-      const warningText = document.querySelector('#connection-warning p');
-      const warningTitle = document.querySelector('#connection-warning h2');
+      const warningText = document.querySelector('#connection-warning .overlay-msg');
+      const warningTitle = document.querySelector('#connection-warning .overlay-title');
       if (warningTitle) warningTitle.textContent = "AWAITING LAPTOP GCS LINK";
       if (warningText) {
-        warningText.innerHTML = "Connected to Render server! Awaiting connection from your laptop GCS.<br><br>1. Open the <b>relay_config.txt</b> file inside your GCS folder on your laptop.<br>2. Enter your Render URL: <b>wss://agri-titan-relay.onrender.com/ws</b>.<br>3. Run your C# GCS application on your laptop.";
+        warningText.innerHTML = "Connected to relay server! Waiting for laptop GCS.<br><br>1. Open <b>relay_config.txt</b> in your GCS folder.<br>2. Enter: <b>wss://agri-titan-relay.onrender.com/ws</b><br>3. Run Agri-Titan GCS on your laptop.";
       }
+    } else {
+      const warningText = document.querySelector('#connection-warning .overlay-msg');
+      const warningTitle = document.querySelector('#connection-warning .overlay-title');
+      if (warningTitle) warningTitle.textContent = "RELAY SERVER OFFLINE";
+      if (warningText) warningText.innerHTML = "Cannot connect to your Render cloud server.<br><br>Check your Server URL in ⚙ settings.";
     }
     
-    // Reset Telemetry display
     resetTelemetryDisplay();
     enableControlInputs(false);
   }
@@ -448,95 +454,114 @@ function enableControlInputs(enabled) {
 
 function resetTelemetryDisplay() {
   elDroneId.textContent = "#--";
-  elFlightMode.textContent = "DISCONNECTED";
-  elFlightMode.className = "value";
-  elMotorStatus.textContent = "STANDBY";
-  elMotorStatus.className = "value";
   
-  elBattery.textContent = "--%";
-  updateProgressRing('ring-battery', 0, '#10b8a6');
-  elVoltage.textContent = "--.- V";
+  if (elFlightMode) {
+    elFlightMode.textContent = "DISCONNECTED";
+    elFlightMode.style.color = '';
+  }
+  if (elMotorStatus) {
+    elMotorStatus.textContent = "STANDBY";
+    elMotorStatus.style.color = '';
+  }
+
+  if (elBattery) elBattery.textContent = "--%";
+  if (elVoltage) elVoltage.textContent = "--V";
+  if (elBattFill) { elBattFill.style.width = '0%'; elBattFill.className = 'batt-fill'; }
+
+  if (elAlt) elAlt.textContent = "--m";
+  if (elMaxAlt) elMaxAlt.textContent = "--m";
+  if (elSpeed) elSpeed.textContent = "--m/s";
+  if (elHeading) elHeading.textContent = "--°";
+
+  if (elGpsStatus) elGpsStatus.textContent = "GPS --";
+  if (elSats) elSats.textContent = "--";
+  if (elHdop) elHdop.textContent = "--";
+
+  if (elPumpToggle) elPumpToggle.checked = false;
+  if (elPumpSubText) elPumpSubText.textContent = "OFF";
   
-  elAlt.textContent = "--.-m";
-  updateProgressRing('ring-alt', 0, '#8b5cf6');
-  elMaxAlt.textContent = "Max: --.-m";
-  
-  elSpeed.textContent = "--.-m/s";
-  updateProgressRing('ring-speed', 0, '#3b82f6');
-  elHeading.textContent = "Hdg: --.-°";
-  
-  elGpsStatus.textContent = "--";
-  elSats.textContent = "--";
-  elHdop.textContent = "--";
-  
-  elPumpToggle.checked = false;
-  elPumpSubText.textContent = "PUMP STATUS: UNKNOWN";
+  if (elFlightOpsBadge) elFlightOpsBadge.textContent = "STANDBY";
+  if (elMapProgressHud) elMapProgressHud.style.display = 'none';
 }
 
 // 4. TELEMETRY DISPLAY HANDLERS
 function handleTelemetryUpdate(tele) {
   isArmedGlobal = tele.isArmed;
-  
-  // Drone metadata
-  elDroneId.textContent = `#${tele.sysId}`;
-  elFlightMode.textContent = tele.modeName;
-  
-  // Mode-based class switching
-  if (tele.modeName === 'AUTO') {
-    elFlightMode.className = "value mode-highlight";
-  } else if (tele.modeName === 'RTL' || tele.modeName === 'LAND') {
-    elFlightMode.className = "value status-highlight";
-  } else {
-    elFlightMode.className = "value";
+
+  // Drone ID
+  if (elDroneId) elDroneId.textContent = `#${tele.sysId}`;
+
+  // Flight mode chip
+  if (elFlightMode) {
+    elFlightMode.textContent = tele.modeName;
+    if (tele.modeName === 'AUTO') elFlightMode.style.color = '#16a34a';
+    else if (tele.modeName === 'RTL' || tele.modeName === 'LAND') elFlightMode.style.color = '#d97706';
+    else elFlightMode.style.color = '';
   }
-  
-  // Armed status
+
+  // Motor/armed chip
+  if (elMotorStatus) {
+    if (tele.isArmed) {
+      elMotorStatus.textContent = "ARMED";
+      elMotorStatus.style.color = '#dc2626';
+    } else {
+      elMotorStatus.textContent = "STANDBY";
+      elMotorStatus.style.color = '';
+    }
+  }
+
+  // Armed → enable mission slider
   if (tele.isArmed) {
-    elMotorStatus.textContent = "ARMED (ACTIVE)";
-    elMotorStatus.className = "value status-highlight";
-    slideMission.classList.remove('disabled'); // Allow starting mission if armed
+    slideMission.classList.remove('disabled');
+    if (elFlightOpsBadge) elFlightOpsBadge.textContent = "ARMED";
   } else {
-    elMotorStatus.textContent = "STANDBY";
-    elMotorStatus.className = "value";
     slideMission.classList.add('disabled');
+    if (elFlightOpsBadge) elFlightOpsBadge.textContent = "STANDBY";
   }
-  
-  // Battery Gauge
-  elBattery.textContent = `${tele.battery}%`;
-  elVoltage.textContent = `${tele.voltage.toFixed(1)} V`;
-  let battColor = '#10b8a6';
-  if (tele.battery < 20) battColor = '#ef4444';
-  else if (tele.battery < 50) battColor = '#f59e0b';
-  updateProgressRing('ring-battery', tele.battery, battColor);
-  
-  // Altitude Gauge (Scale ring relative to Max 50m for UI visibility)
-  elAlt.textContent = `${tele.alt.toFixed(1)}m`;
-  elMaxAlt.textContent = `Max: ${tele.maxAlt.toFixed(1)}m`;
-  let altPercent = Math.min((tele.alt / 40.0) * 100, 100); // 40m target altitude scale
-  updateProgressRing('ring-alt', altPercent, '#8b5cf6');
-  
-  // Speed Gauge (Scale ring relative to Max 10m/s)
-  elSpeed.textContent = `${tele.speed.toFixed(1)}m/s`;
-  elHeading.textContent = `Hdg: ${tele.heading.toFixed(0)}°`;
-  let speedPercent = Math.min((tele.speed / 8.0) * 100, 100); // 8m/s max speed scale
-  updateProgressRing('ring-speed', speedPercent, '#3b82f6');
-  
-  // GPS Info
-  elGpsStatus.textContent = tele.gpsStatus;
-  elSats.textContent = tele.sats;
-  elHdop.textContent = tele.hdop.toFixed(1);
-  
+
+  // Battery
+  if (elBattery) elBattery.textContent = `${tele.battery}%`;
+  if (elVoltage) elVoltage.textContent = `${tele.voltage.toFixed(1)}V`;
+  if (elBattFill) {
+    elBattFill.style.width = `${Math.min(tele.battery, 100)}%`;
+    elBattFill.className = 'batt-fill';
+    if (tele.battery < 20) elBattFill.classList.add('low');
+    else if (tele.battery < 50) elBattFill.classList.add('mid');
+  }
+
+  // Altitude
+  if (elAlt) elAlt.textContent = `${tele.alt.toFixed(1)}m`;
+  if (elMaxAlt) elMaxAlt.textContent = `${tele.maxAlt.toFixed(1)}m`;
+
+  // Speed & Heading
+  if (elSpeed) elSpeed.textContent = `${tele.speed.toFixed(1)}m/s`;
+  if (elHeading) elHeading.textContent = `${tele.heading.toFixed(0)}°`;
+
+  // GPS
+  if (elGpsStatus) elGpsStatus.textContent = `GPS ${tele.gpsStatus}`;
+  if (elSats) elSats.textContent = tele.sats;
+  if (elHdop) elHdop.textContent = tele.hdop.toFixed(1);
+
   // Pump Status
-  if (tele.pump === 0) {
-    elPumpToggle.checked = true;
-    elPumpSubText.textContent = "PUMP STATUS: ACTIVE (SPRAYING)";
-    elPumpSubText.style.color = "var(--primary)";
-  } else {
-    elPumpToggle.checked = false;
-    elPumpSubText.textContent = "PUMP STATUS: STOPPED";
-    elPumpSubText.style.color = "var(--text-secondary)";
+  if (elPumpToggle) {
+    if (tele.pump === 0) {
+      elPumpToggle.checked = true;
+      if (elPumpSubText) { elPumpSubText.textContent = "ON"; elPumpSubText.style.color = "var(--primary)"; }
+    } else {
+      elPumpToggle.checked = false;
+      if (elPumpSubText) { elPumpSubText.textContent = "OFF"; elPumpSubText.style.color = ""; }
+    }
   }
-  
+
+  // Mission progress HUD on map
+  if (tele.totalWp > 0 && tele.currentWp > 0) {
+    const pct = Math.min(Math.round((tele.currentWp / tele.totalWp) * 100), 100);
+    if (elMapProgressHud) elMapProgressHud.style.display = 'block';
+    if (elMapProgressPct) elMapProgressPct.textContent = `${pct}%`;
+    if (elMapProgressBar) elMapProgressBar.style.width = `${pct}%`;
+    if (elMapProgressDetail) elMapProgressDetail.textContent = `${tele.currentWp} / ${tele.totalWp} waypoints`;
+  }
+
   // Auto-detect currently running GCS mission if not set but we have activeMissionsList
   if (tele.totalWp > 0 && (!currentActiveMission || currentActiveMission.waypointsCount !== tele.totalWp)) {
     const matched = activeMissionsList.find(m => m.waypointsCount === tele.totalWp);
@@ -549,27 +574,25 @@ function handleTelemetryUpdate(tele) {
   // Map updates (only if coordinate is valid)
   if (tele.lat !== 0 && tele.lon !== 0) {
     updateDroneLocationOnMap(tele.lat, tele.lon, tele.heading);
-    
-    // Draw and split active mission progress on mobile map
     if (currentActiveMission) {
       updateMobileMissionProgress(tele.currentWp, tele.totalWp, tele.modeName, tele.lat, tele.lon);
     }
   }
-  
+
   // Active Waypoint Upload Lockout
   const uploadOverlay = document.getElementById('upload-overlay');
   const uploadProgressText = document.getElementById('upload-progress-text');
+  const uploadBar = document.getElementById('upload-progress-bar-fill');
   if (tele.isUploading) {
     if (uploadOverlay) uploadOverlay.classList.add('active');
     if (uploadProgressText) {
-      uploadProgressText.innerHTML = `Waypoints are being uploaded from laptop to your drone.<br><br><b>Upload Progress: ${tele.uploadProgress}%</b>`;
+      uploadProgressText.innerHTML = `Uploading waypoints to drone...<br><b>${tele.uploadProgress}% complete</b>`;
     }
+    if (uploadBar) uploadBar.style.width = `${tele.uploadProgress}%`;
     enableControlInputs(false);
   } else {
     if (uploadOverlay) uploadOverlay.classList.remove('active');
-    if (lastGcsState) {
-      enableControlInputs(true);
-    }
+    if (lastGcsState) enableControlInputs(true);
   }
 
   // Logs stream
@@ -685,7 +708,7 @@ function setupSlider(handleId, containerId, onComplete) {
   
   function dragReset(completed) {
     handle.style.transition = 'left 0.3s ease-out';
-    handle.style.left = '2px';
+    handle.style.left = '3px';
     if (completed) {
       // Haptic feedback if mobile device supports it
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
